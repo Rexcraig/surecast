@@ -34,6 +34,7 @@ struct DashboardView: UIViewRepresentable {
         web.backgroundColor = seaColor
         web.scrollView.backgroundColor = seaColor
         web.scrollView.contentInsetAdjustmentBehavior = .never
+        web.navigationDelegate = context.coordinator
         context.coordinator.webView = web
         if let page = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
             web.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
@@ -43,7 +44,7 @@ struct DashboardView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKScriptMessageHandler, CLLocationManagerDelegate, UNUserNotificationCenterDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, CLLocationManagerDelegate, UNUserNotificationCenterDelegate {
         weak var webView: WKWebView?
         private let manager = CLLocationManager()
         private var wantsFix = false
@@ -61,6 +62,11 @@ struct DashboardView: UIViewRepresentable {
             case "schedule": if let items = message.body as? [[String: Any]] { scheduleAlerts(items) }
             default: break
             }
+        }
+
+        // iOS can kill the page's process under memory pressure, which leaves a blank screen; load it again.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            webView.reload()
         }
 
         // Each item: {day: "YYYY-MM-DD", title, body}. Fires at 8 PM phone time on that day.

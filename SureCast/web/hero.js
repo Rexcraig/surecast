@@ -5,15 +5,12 @@
 (function(){
 "use strict";
 const W=360, H=262, PX_FT=5, SHORE_TOP=158, SLOPE=0.58, SAND_X0=86, LOW_Y=226, HIGH_Y=176;
-const fishColor = s => s>=80?"#38d39f":s>=60?"#48bb78":s>=40?"#ecc94b":"#5a7591";
-const fishLabel = s => s>=80?"Great":s>=60?"Good":s>=40?"Fair":"Poor";
+const {compass, fishLabel, fishHex:fishColor} = window.SC;   // util.js
 const fishCount = s => s>=80?5:s>=70?4:s>=60?3:s>=40?2:s>=20?1:0;   // absolute score, not ranked within the day
 const windColor = k => k<6?"#7fb8d8":k<10?"#5fd0a0":k<14?"#a8d05a":k<18?"#e8c24a":k<23?"#f0904a":k<30?"#f06a4a":"#e04a5a";
 const rad = d => d*Math.PI/180, frac = x => x-Math.floor(x), lerp=(a,b,f)=>a+(b-a)*f;
 const mix = (a,b,f) => { const p=c=>[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)); const x=p(a),y=p(b); return "#"+x.map((v,i)=>Math.round(v+(y[i]-v)*f).toString(16).padStart(2,"0")).join(""); };
 const edgeX = y => SAND_X0 + (y-SHORE_TOP)/SLOPE;                  // where water at level y meets the sand
-const COMPASS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-const compass = deg => COMPASS[Math.round(((deg%360)+360)%360/22.5)%16];
 
 function arrow(x0,y0,x1,y1,w,color,op=1){
   const a=Math.atan2(y1-y0,x1-x0), hl=w*2.2, hw=w*1.6, bx=x1-hl*Math.cos(a), by=y1-hl*Math.sin(a), nx=-Math.sin(a), ny=Math.cos(a);
@@ -39,11 +36,14 @@ function surfcaster(lineTo, C="#152131"){
 const FISH = `<path d="M7 0 Q2 -4.5 -5 -2.2 L-10 -5 L-8.5 0 L-10 5 L-5 2.2 Q2 4.5 7 0 Z"/>`;
 const fishAt = (x,y,dir,color) => `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${dir*1.05} 1.05)" fill="${color}" opacity=".92">${FISH}<circle cx="3.6" cy="-0.8" r="0.9" fill="#0b1724"/></g>`;
 
-let S = null, raf = 0, lastDraw = 0;
+let S = null, raf = 0, lastDraw = 0, onScreen = true, watched = null;
+// Stop animating while the scene is scrolled out of view.
+const io = window.IntersectionObserver ? new IntersectionObserver(es => { onScreen = es[es.length-1].isIntersecting;
+  if (onScreen && S && !reduceMotion && !raf) raf = requestAnimationFrame(loop); }) : null;
 const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* d: {hour, sunrise, sunset (decimal hours), wind, gust, windFrom, wave, period, sst, air, feels (°F), tide:{v,low:{v,t},high:{v,t},rising}|null,
-       cloud (0-100), rain (mm/h), moon:{ill, waxing}, shore (bearing the beach faces), scores[], cur, curLabel, isNow, hourLabels[]} */
+       cloud (0-100), rain (mm/h), pop (% chance of rain), storm (bool), starOk[] (hours eligible for the best star), moon:{ill, waxing}, shore (bearing the beach faces), scores[], cur, curLabel, isNow, hourLabels[]} */
 function render(svg, d, onPick){
   const id="hero";
   const tide=d.tide, tFrac = tide ? Math.max(0,Math.min(1,(tide.v-tide.low.v)/((tide.high.v-tide.low.v)||1))) : 0.5;
@@ -85,8 +85,10 @@ function render(svg, d, onPick){
     labels+=`<rect x="${W-10-w}" y="60" width="${w.toFixed(1)}" height="17" rx="8.5" fill="${b[0]}"/><text x="${(W-10-w/2).toFixed(1)}" y="72" text-anchor="middle" font-size="10" font-weight="800" fill="${b[2]}">${txt}</text>`; }
   { const bits=[];
     if (d.air!=null) bits.push(`<tspan font-size="12" font-weight="800">${Math.round(d.air)}°F</tspan> air`+(d.feels!=null&&Math.abs(d.feels-d.air)>=3?` · feels ${Math.round(d.feels)}°`:""));
-    if (d.rain>=0.1) bits.push(`rain ${d.rain.toFixed(1)} mm/h`);
+    if (d.pop!=null && d.pop>=20) bits.push(`${Math.round(d.pop)}% rain`); else if (d.rain>=0.1) bits.push(`rain ${d.rain.toFixed(1)} mm/h`);
     if (bits.length) labels+=`<text x="12" y="61" font-size="10.5" fill="#fff" opacity=".95">${bits.join(" · ")}</text>`; }
+  if (d.storm){ const y=(isDay && d.uv!=null && d.uv>=0.5)?81:60, w=76;
+    labels+=`<rect x="${W-10-w}" y="${y}" width="${w}" height="17" rx="8.5" fill="#e0504a"/><text x="${W-10-w/2}" y="${y+12}" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">⚡ STORMS</text>`; }
   { const cx=W-30, cy=30, r=20, a=rad(d.windFrom), x0=cx+r*Math.sin(a), y0=cy-r*Math.cos(a), x1=cx-r*0.8*Math.sin(a), y1=cy+r*0.8*Math.cos(a);
     const sa=rad(d.shore+90), lx=-3*Math.sin(rad(d.shore)), ly=3*Math.cos(rad(d.shore));   // shoreline, nudged toward land
     labels+=`<circle cx="${cx}" cy="${cy}" r="${r+3}" fill="rgba(11,23,36,.55)"/>
@@ -98,15 +100,16 @@ function render(svg, d, onPick){
     <text x="12" y="${H-11}" font-size="16" font-weight="800" fill="${isDay?"#3d321c":"#f4ead2"}">${tide.v.toFixed(1)}′ ${tide.rising?"↑ rising":"↓ falling"}</text>`;
 
   // fishing strip: every hour of the selected day; tap a bar to jump to that hour
-  const n=d.scores.length, sy=H+20, gx=94, bw=(W-gx-8)/n, maxH=46, best=d.scores.indexOf(Math.max(...d.scores)), now=d.cur;
+  const n=d.scores.length, sy=H+20, gx=94, bw=(W-gx-8)/n, maxH=46, now=d.cur;
+  let best=-1; d.scores.forEach((v,k)=>{ if ((!d.starOk||d.starOk[k]) && (best<0||v>d.scores[best])) best=k; });   // best hour still ahead, within fishing hours
   let strip=`<text x="12" y="${sy+26}" font-size="30" font-weight="800" fill="${fishColor(score)}">${score}</text>
     <text x="12" y="${sy+44}" font-size="11" font-weight="700" fill="${fishColor(score)}">${fishLabel(score).toUpperCase()} ${d.isNow?"NOW":"AT "+d.curLabel.toUpperCase()}</text>
     <text x="12" y="${sy+59}" font-size="10" fill="#8aa4bf">fishing score</text>`;
   d.scores.forEach((v,k)=>{ const x=gx+k*bw, bh=Math.max(2,v/100*maxH);
     strip+=`<rect x="${x.toFixed(1)}" y="${(sy+maxH-bh).toFixed(1)}" width="${(bw-2.5).toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fishColor(v)}" opacity="${k===now?1:.75}"/>`; });
   const cxOf=k=>gx+k*bw+(bw-2.5)/2, nx=cxOf(now), bx=cxOf(best), sty = best===now ? sy-8 : sy+maxH-d.scores[best]/100*maxH-4;
-  strip+=`<rect x="${(gx+now*bw-2).toFixed(1)}" y="${sy-4}" width="${(bw+1.5).toFixed(1)}" height="${maxH+8}" rx="3" fill="none" stroke="#fff" stroke-width="1.5"/>
-    <text x="${bx.toFixed(1)}" y="${sty.toFixed(1)}" text-anchor="middle" font-size="10" fill="#ffe08a">★</text>
+  strip+=`<rect x="${(gx+now*bw-2).toFixed(1)}" y="${sy-4}" width="${(bw+1.5).toFixed(1)}" height="${maxH+8}" rx="3" fill="none" stroke="#fff" stroke-width="1.5"/>`;
+  if (best>=0) strip+=`<text x="${bx.toFixed(1)}" y="${sty.toFixed(1)}" text-anchor="middle" font-size="10" fill="#ffe08a">★</text>
     <text x="${(best>=now? bx+(best===now?9:7) : bx-7).toFixed(1)}" y="${sty.toFixed(1)}" text-anchor="${best>=now?"start":"end"}" font-size="9.5" font-weight="700" fill="#ffe08a">best ${d.hourLabels[best]}</text>`;
   [[0,"start"],[Math.round(n/2),"middle"],[n,"end"]].forEach(([k,anc])=>{ if (Math.abs(k-now)>2.5 && Math.abs(k-1-now)>1.5)
     strip+=`<text x="${(k===n?gx+n*bw-2:gx+k*bw).toFixed(1)}" y="${sy+maxH+13}" text-anchor="${anc}" font-size="9" fill="#8aa4bf">${k===Math.round(n/2)?"12p":"12a"}</text>`; });
@@ -133,12 +136,13 @@ function render(svg, d, onPick){
         cloudFill: isDay? mix("#ffffff","#8e98a5",cover) : "#2c3646",
         g: k => svg.querySelector("#"+id+k), wp: svg.querySelector("#"+id+"WaterPath") };
   draw(0);
+  if (io && watched!==svg){ io.disconnect(); io.observe(svg); watched = svg; }
   if (!reduceMotion && !raf) raf = requestAnimationFrame(loop);
 }
 
 function loop(ms){
   raf = 0;
-  if (!S || !document.body.contains(S.svg)) return;
+  if (!S || !onScreen || !document.body.contains(S.svg)) return;
   if (ms-lastDraw > 33){ lastDraw = ms; draw(ms/1000); }   // ~30 fps is plenty and easier on the battery
   raf = requestAnimationFrame(loop);
 }

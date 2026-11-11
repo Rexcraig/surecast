@@ -9,7 +9,7 @@
 #   scripts/phones.sh status    When each phone's install expires.
 #
 # Renewals build the frozen copy, never the working tree, so work in progress can't reach
-# her phone. Use `release` to ship a new version.
+# the phone. Use `release` to ship a new version.
 set -uo pipefail
 export LANG=en_US.UTF-8 PATH=/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 
@@ -73,7 +73,13 @@ install_on() {
 
 case "${1:-}" in
 release)
-    log "release: freezing $REPO"
+    # The version lives in two places: VERSION in web/index.html (shown on the page) and project.yml (the app).
+    # They must match; the Xcode project is regenerated from project.yml so it never needs a hand edit.
+    web_ver=$(sed -n 's/^const VERSION = "\(.*\)";$/\1/p' "$REPO/SureCast/web/index.html")
+    app_ver=$(sed -n 's/.*MARKETING_VERSION: "\(.*\)"/\1/p' "$REPO/project.yml")
+    [[ -n "$web_ver" && "$web_ver" == "$app_ver" ]] || { log "release: version mismatch (page '$web_ver', project.yml '$app_ver')"; exit 1; }
+    (cd "$REPO" && xcodegen generate >> "$DATA/build.log" 2>&1) || { log "release: xcodegen failed; see $DATA/build.log"; exit 1; }
+    log "release: freezing $REPO (v$web_ver)"
     rm -rf "$SRC" && mkdir -p "$SRC" || exit 1
     # APFS clones: instant, and no extra disk space until files change.
     cp -cR "$REPO/SureCast" "$REPO/SureCast.xcodeproj" "$REPO/project.yml" "$SRC/" || exit 1

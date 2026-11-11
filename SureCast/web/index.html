@@ -9,6 +9,7 @@
 <title>SureCast</title>
 <script src="suncalc.min.js"></script>
 <script src="metstations.js"></script>
+<script src="util.js"></script>
 <script src="hero.js"></script>
 <style>
 :root{
@@ -67,9 +68,9 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .grid{position:relative}
 .row{display:flex}
 .c{flex:0 0 var(--colw);width:var(--colw);text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;border-right:1px solid rgba(35,64,95,.45)}
-.r-hour{height:34px}.r-temp{height:28px}.r-wind{height:66px}.r-wave{height:52px}.r-tide{height:76px}.r-fish{height:58px}
+.r-hour{height:34px}.r-temp{height:40px}.r-wind{height:66px}.r-wave{height:52px}.r-tide{height:76px}.r-fish{height:58px}
 .r-hour .c{font-size:13px;font-weight:700}.r-hour .c small{font-size:9px;color:var(--muted);font-weight:600}
-.r-temp .c{font-size:13px;font-weight:700}
+.r-temp .c b{font-size:13px}.r-temp .c small{font-size:9.5px;color:#8fc7ff;height:12px;line-height:12px}
 .r-wind .c b{font-size:15px}.r-wind .c small{font-size:10px;opacity:.85}
 .r-wave .c b{font-size:14px}.r-wave .c small{font-size:10px;color:var(--muted)}
 .r-fish .c{justify-content:flex-end;padding-bottom:5px}
@@ -83,6 +84,21 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .foot{padding:4px 14px 18px;color:#5f7a95;font-size:10.5px;line-height:1.45}
 .err{margin:8px 14px;padding:8px 10px;border-radius:10px;background:#3b1f24;color:#ffb4b4;font-size:12px;display:none}
 .loading{opacity:.45;transition:opacity .2s}
+.alerts{padding:0 14px;display:flex;flex-direction:column}
+.alert{display:flex;align-items:center;gap:8px;text-align:left;border-radius:12px;padding:8px 11px;font-size:12.5px;font-weight:600;background:#4a3a14;color:#ffe3a3;margin-top:5px}
+.alert.sev{background:#5a1f24;color:#ffc9c9}
+.alert small{margin-left:auto;font-weight:500;opacity:.8;white-space:nowrap}
+.catch{display:flex;gap:7px;padding:8px 14px 2px}
+.catch button{flex:1;border-radius:12px;padding:10px;background:var(--panel);font-weight:600;font-size:13px}
+.catch #catchBtn{background:var(--panel2);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.hrs{display:flex;align-items:center;gap:8px;color:var(--muted)}
+.hrs select{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
+.hrs select:disabled{opacity:.4}
+.note{color:var(--muted);font-size:11.5px;margin-top:6px}
+.entry{background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:6px;font-size:12.5px;color:var(--muted);line-height:1.45}
+.entry b{color:var(--text)}.entry .x{float:right;color:#ff8f8f;padding:0 0 6px 10px;font-size:12px}
+.entry input{margin-top:7px;padding:7px 9px;font-size:13px}
+#infoBody p{white-space:pre-wrap;color:var(--muted);font-size:12.5px;line-height:1.5;margin-bottom:8px}
 /* sheet */
 .sheet{position:fixed;inset:0;background:rgba(3,10,18,.6);display:none;align-items:flex-end;justify-content:center;z-index:10}
 .sheet.open{display:flex}
@@ -99,19 +115,21 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <body>
 <div class="top">
   <button class="spot" id="spotBtn"><b id="spotName">Delray Beach</b><small id="stationName">Tides: Lake Worth Pier (ocean)</small></button>
-  <div class="ver">v0.18<br><span id="updated">loading…</span></div>
+  <button class="ver" id="verBtn"><span id="ver"></span><br><span id="updated">loading…</span></button>
 </div>
 <div class="hero"><svg id="hero" viewBox="0 0 360 348"></svg></div>
+<div class="alerts" id="alerts"></div>
 <div class="days" id="days"></div>
 <div class="sel"><b id="selTime">—</b><span id="selHint">tap any hour below</span></div>
 <div class="tiles" id="tiles"></div>
 <div class="live" id="live" style="display:none"></div>
 <div class="best" id="best"></div>
+<div class="catch"><button id="catchBtn">🎣 Caught one</button><button id="logBtn">Catch log</button></div>
 <div class="err" id="err"></div>
 <div class="tl" id="tl">
   <div class="labels">
     <div class="r-hour"></div>
-    <div class="r-temp">Air °F</div>
+    <div class="r-temp">Air °F<small>rain %</small></div>
     <div class="r-wind">Wind<small>kts · gust</small></div>
     <div class="r-wave">Waves<small>ft · sec</small></div>
     <div class="r-tide">Tide<small>ft</small></div>
@@ -122,7 +140,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <div class="legend">
   <span><i style="background:var(--great)"></i>Great</span><span><i style="background:var(--good)"></i>Good</span><span><i style="background:var(--fair)"></i>Fair</span><span><i style="background:var(--poor)"></i>Poor</span><span style="color:#ff8f8f">│ now</span>
 </div>
-<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: NOAA CO-OPS station measurement · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement + dawn/dusk + pressure trend + wind. Forecasts only — not for navigation.</div>
+<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: NOAA CO-OPS station measurement · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement + dawn/dusk + pressure trend, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
 
 <div class="sheet" id="sheet">
   <div class="panel">
@@ -135,13 +153,20 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     <button class="opt" id="geoBtn">📍 Use my current location</button>
     <h4>Tide station</h4>
     <div id="stations"><div class="opt"><small>Loading nearby stations…</small></div></div>
+    <h4>Fishing hours</h4>
+    <div class="hrs"><select id="hrFrom"></select><span>to</span><select id="hrTo"></select></div>
+    <div class="note">Best times, the day dots and the 8 PM alert only count these hours.</div>
     <button class="btn" id="closeBtn">Done</button>
   </div>
 </div>
 
+<div class="sheet" id="info">
+  <div class="panel"><h2 id="infoTitle"></h2><div id="infoBody"></div><button class="btn" id="infoClose">Close</button></div>
+</div>
+
 <script>
 "use strict";
-const VERSION = "0.18";
+const VERSION = "0.19";
 // User's regular spots. All use Lake Worth Pier: the nearest ocean-side tide station (closer ones are on the ICWW).
 const PIER = {id:"8722670", name:"Lake Worth Pier (ocean)"};
 // Spots on the beach between Lake Worth Pier and Hillsboro Inlet get a blend of both ocean stations,
@@ -157,6 +182,9 @@ const SPOTS = [
 ];
 const DEFAULT = {name:"Delray Beach", lat:26.4613, lon:-80.0597, shore:90, station:PIER};
 const $ = id => document.getElementById(id);
+$("ver").textContent = "v"+VERSION;
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const {compass, fishLabel, fishHex:fishColor} = SC; // util.js
 const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
@@ -164,6 +192,10 @@ const store = {
 let spot = store.get("tideline.spot", DEFAULT);
 let D = null;           // loaded data
 let dayIdx = 0, selIdx = null;  // selected day / hour index (global hourly index)
+let followNow = true;   // selection tracks the current hour until the user picks another one
+let HRS = store.get("surecast.hours", null); // hours the user fishes: {from,to} local hours, null = any time
+const inHours = t => { if (!HRS || HRS.from===HRS.to) return true; const h = new Date(t).getUTCHours();
+  return HRS.from<HRS.to ? h>=HRS.from && h<HRS.to : h>=HRS.from || h<HRS.to; };
 const H = 3600e3, M = 60e3;
 
 /* ---------- time helpers: everything kept as "local ms" (local wall-clock encoded as UTC) ---------- */
@@ -177,7 +209,6 @@ const DOW = ["SU","MO","TU","WE","TH","FR","SA"];
 const DOWL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const ymd = l => { const d=new Date(l); return d.getUTCFullYear()+String(d.getUTCMonth()+1).padStart(2,"0")+String(d.getUTCDate()).padStart(2,"0"); };
 const nowLocal = () => Date.now() + OFF*1000;
-const compass = deg => ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"][Math.round(((deg%360)+360)%360/22.5)%16];
 
 /* ---------- colors ---------- */
 function lerpColor(stops, v){
@@ -189,48 +220,57 @@ function lerpColor(stops, v){
 }
 const windColor = k => lerpColor([[0,"#2a5a85"],[6,"#2f7fa3"],[10,"#2e9e6b"],[14,"#8fbf3a"],[18,"#d9b23a"],[23,"#e07b39"],[30,"#c0392b"],[40,"#8e2d6b"]], k);
 const tempColor = f => lerpColor([[45,"#7fb8ff"],[62,"#8fd3c8"],[74,"#e8f1fa"],[84,"#f6c26b"],[92,"#f08a4a"],[100,"#ff6b5a"]], f);
-const fishColor = s => s>=80?"var(--great)":s>=60?"var(--good)":s>=40?"var(--fair)":"var(--poor)";
-const fishLabel = s => s>=80?"Great":s>=60?"Good":s>=40?"Fair":"Poor";
 const arrowSVG = (deg, color="#e8f1fa", size=20) =>
   `<svg class="arrow" width="${size}" height="${size}" viewBox="0 0 20 20" style="transform:rotate(${(deg+180)%360}deg)"><path d="M10 17.5 V3 M4.5 8.5 L10 3 L15.5 8.5" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 /* ---------- data ---------- */
-async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status+" "+url.split("?")[0]); return r.json(); }
+async function getJSON(url){
+  const r = await fetch(url, window.AbortSignal && AbortSignal.timeout ? {signal:AbortSignal.timeout(15000)} : undefined);
+  if(!r.ok) throw new Error(r.status+" "+url.split("?")[0]); return r.json(); }
+const spotKey = () => `${spot.lat},${spot.lon},${spot.station.id}`;
+// Last good forecast for the 4 most recent spots, so opening the app with no signal still shows something.
+const cacheGet = key => { const r = store.get("surecast.cache", {})[key]; return r && Date.now()-r.fetched < 5*24*H ? r : null; };
+function cachePut(key, raw){ const c = store.get("surecast.cache", {}); c[key] = raw;
+  Object.keys(c).sort((a,b)=>c[b].fetched-c[a].fetched).slice(4).forEach(k=>delete c[k]); store.set("surecast.cache", c); }
+const ago = ms => { const m = Math.max(0, Math.round((Date.now()-ms)/M)); return m<60 ? m+" min ago" : m<48*60 ? Math.round(m/60)+" h ago" : Math.round(m/1440)+" d ago"; };
+function markUpdated(){ if (D) $("updated").textContent = "↻ "+(Date.now()-D.fetched < H ? fmtH(toLocal(new Date(D.fetched))) : ago(D.fetched)); }
 
-async function load(){
-  $("grid").classList.add("loading"); $("err").style.display="none";
-  const {lat, lon} = spot;
-  const wxU = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation,uv_index,temperature_2m,apparent_temperature&daily=sunrise,sunset&wind_speed_unit=kn&temperature_unit=fahrenheit&timezone=auto&forecast_days=7&past_days=1&cell_selection=sea`;
-  const maU = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_period,wave_direction,sea_surface_temperature&length_unit=imperial&temperature_unit=fahrenheit&timezone=auto&forecast_days=7&past_days=1&cell_selection=sea`;
+// Everything the page needs from the network, as raw API responses (this is what gets cached). null if the forecast itself fails.
+async function fetchAll(errs){
+  const {lat, lon} = spot, st = spot.station.id, south = blendWeight(spot)>0;
+  const om = "&timezone=auto&forecast_days=7&past_days=1";
+  const wxU = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation,precipitation_probability,weather_code,uv_index,temperature_2m,apparent_temperature&daily=sunrise,sunset&wind_speed_unit=kn&temperature_unit=fahrenheit${om}&cell_selection=sea`;
+  const maU = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_period,wave_direction,sea_surface_temperature&length_unit=imperial&temperature_unit=fahrenheit${om}&cell_selection=sea`;
   // Air temp: the sea cell runs several °F warmer than the land behind the beach at night, so fetch both
   // and blend by wind direction (onshore wind = sea air, offshore = land air). Sea cell alone if this fails.
-  const ldU = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,apparent_temperature&temperature_unit=fahrenheit&timezone=auto&forecast_days=7&past_days=1&cell_selection=land`;
-  const errs = [];
+  const ldU = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,apparent_temperature&temperature_unit=fahrenheit${om}&cell_selection=land`;
   const [wx, ma, ld] = await Promise.all([getJSON(wxU).catch(e=>{errs.push("wind: "+e.message);return null;}), getJSON(maU).catch(e=>{errs.push("waves: "+e.message);return null;}), getJSON(ldU).catch(()=>null)]);
-  if (!wx){ showErr("Couldn't load the forecast. "+errs.join(" · ")); return; }
-  OFF = wx.utc_offset_seconds;
+  if (!wx) return null;
   const t0 = parseLocal(wx.hourly.time[0]);
-  const begin = ymd(t0), end = ymd(t0 + 9*24*H);
-  const tdU = `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=surecast&station=${spot.station.id}&begin_date=${begin}&end_date=${end}&datum=MLLW&units=english&time_zone=lst_ldt&interval=hilo&format=json`;
-  const td = await getJSON(tdU).catch(e=>{errs.push("tides: "+e.message);return null;});
-  let hilo = td && td.predictions ? td.predictions.map(p=>({t:parseLocal(p.t), v:+p.v, type:p.type})) : [];
-  const w = blendWeight(spot); let tideName = spot.station.name;
-  if (w>0 && hilo.length){
-    const sU = tdU.replace("station="+spot.station.id, "station="+BLEND.south.id);
-    const sd = await getJSON(sU).catch(()=>null);
-    const sl = sd && sd.predictions ? sd.predictions.map(p=>({t:parseLocal(p.t), v:+p.v, type:p.type})) : [];
-    if (sl.length){
-      // pair each high/low with the same tide at the south station (within 2 h), then interpolate time and height
-      hilo = hilo.map(a => { const b = sl.find(x => x.type===a.type && Math.abs(x.t-a.t)<2*H);
-        return b ? {t:Math.round(a.t+w*(b.t-a.t)), v:a.v+w*(b.v-a.v), type:a.type} : a; });
-      tideName = `${BLEND.north.name} + ${BLEND.south.name} (ocean)`;
-    }
+  const tdU = id => `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=surecast&station=${id}&begin_date=${ymd(t0)}&end_date=${ymd(t0+9*24*H)}&datum=MLLW&units=english&time_zone=lst_ldt&interval=hilo&format=json`;
+  const [td, sd] = await Promise.all([getJSON(tdU(st)).catch(e=>{errs.push("tides: "+e.message);return null;}), south ? getJSON(tdU(BLEND.south.id)).catch(()=>null) : null]);
+  return {wx, ma, ld, td, sd, fetched:Date.now()};
+}
+
+// Turns raw responses into D for the current spot.
+function build(raw, key){
+  const {wx, ma, ld, td, sd} = raw;
+  OFF = wx.utc_offset_seconds;
+  const pred = j => j && j.predictions ? j.predictions.map(p=>({t:parseLocal(p.t), v:+p.v, type:p.type})) : [];
+  let hilo = pred(td), tideName = spot.station.name; const w = blendWeight(spot), sl = pred(sd);
+  if (w>0 && hilo.length && sl.length){
+    // pair each high/low with the same tide at the south station (within 2 h), then interpolate time and height
+    hilo = hilo.map(a => { const b = sl.find(x => x.type===a.type && Math.abs(x.t-a.t)<2*H);
+      return b ? {t:Math.round(a.t+w*(b.t-a.t)), v:a.v+w*(b.v-a.v), type:a.type} : a; });
+    tideName = `${BLEND.north.name} + ${BLEND.south.name} (ocean)`;
   }
+  // Which way the beach faces: preset spots say; anywhere else it's the bearing from the nearest land cell to the nearest sea cell.
+  const apart = ld && (ld.latitude!==wx.latitude || ld.longitude!==wx.longitude);
+  const shore = spot.shore!=null ? spot.shore : apart ? (Math.atan2((wx.longitude-ld.longitude)*Math.cos(spot.lat*Math.PI/180), wx.latitude-ld.latitude)*180/Math.PI+360)%360 : 90;
 
   const n = wx.hourly.time.length, hours = [];
   const maIdx = {}; if (ma) ma.hourly.time.forEach((s,i)=>maIdx[s]=i);
   const ldIdx = {}; if (ld) ld.hourly.time.forEach((s,i)=>ldIdx[s]=i);
-  const shore = spot.shore==null?90:spot.shore;
   const blend = (sea, land, ws) => sea==null ? (land==null?null:land) : land==null ? sea : sea*ws + land*(1-ws);
   for (let i=0;i<n;i++){
     const s = wx.hourly.time[i], j = maIdx[s], k = ldIdx[s];
@@ -239,22 +279,43 @@ async function load(){
       air:blend(wx.hourly.temperature_2m[i], ld&&k!=null?ld.hourly.temperature_2m[k]:null, ws),
       feels:blend(wx.hourly.apparent_temperature[i], ld&&k!=null?ld.hourly.apparent_temperature[k]:null, ws),
       p:wx.hourly.pressure_msl[i], cloud:wx.hourly.cloud_cover[i], rain:wx.hourly.precipitation[i], uv:wx.hourly.uv_index[i],
+      pop:wx.hourly.precipitation_probability[i], code:wx.hourly.weather_code[i],   // code 95+ = thunderstorm
       wave: ma&&j!=null?ma.hourly.wave_height[j]:null, per: ma&&j!=null?ma.hourly.wave_period[j]:null,
       wdir: ma&&j!=null?ma.hourly.wave_direction[j]:null, sst: ma&&j!=null?ma.hourly.sea_surface_temperature[j]:null});
   }
   const days = wx.daily.time.map((s,i)=>({t:parseLocal(s+"T00:00"), sunrise:parseLocal(wx.daily.sunrise[i]), sunset:parseLocal(wx.daily.sunset[i])}));
-  D = {hours, days, hilo, tideName, fetched:Date.now()};
+  D = {key, hours, days, hilo, tideName, shore, sea:{lat:wx.latitude, lon:wx.longitude}, fetched:raw.fetched};
   computeFishing();
+}
+
+const curHourIdx = () => { const nl = nowLocal(); return D.hours.findIndex(h => nl>=h.t && nl<h.t+H); };
+const dayOf = t => D.days.findIndex(d => t>=d.t && t<d.t+24*H);
+function select(i){ selIdx = i; followNow = i===curHourIdx(); }
+// After new data: keep the hour the user was looking at (prevT), else go to today, current hour.
+function pickSel(prevT){
+  const i = prevT==null ? -1 : D.hours.findIndex(h => h.t===prevT);
+  if (i>=0 && dayOf(prevT)>=0){ selIdx = i; dayIdx = dayOf(prevT); return; }
+  followNow = true;
+  dayIdx = Math.max(0, dayOf(nowLocal()));
+  const hi = curHourIdx(); selIdx = hi>=0 ? hi : dayStartIdx(dayIdx);
+}
+
+// keep = a background refresh: the user's selected hour and scroll position stay put.
+let loadSeq = 0, lastTry = 0;
+async function load(keep){
+  const seq = ++loadSeq, key = spotKey(); lastTry = Date.now();
+  const prevT = keep && !followNow && D && D.key===key && D.hours[selIdx] ? D.hours[selIdx].t : null;
+  const show = (raw, scroll) => { build(raw, key); pickSel(prevT); markUpdated(); render(scroll); };
+  $("err").style.display="none";
+  if (!D || D.key!==key){ const c = cacheGet(key); if (c) try{ show(c, true); }catch(e){} }
+  $("grid").classList.add("loading");
+  const errs = [], raw = await fetchAll(errs);
+  if (seq!==loadSeq || spotKey()!==key) return;   // a newer load, or the spot changed while this one was in flight
+  if (!raw){ showErr(D && D.key===key ? `No connection — showing the forecast from ${ago(D.fetched)}.` : "Couldn't load the forecast. "+errs.join(" · ")); return; }
+  cachePut(key, raw);
+  show(raw, !keep || followNow);
   if (errs.length) showErr("Partly loaded — "+errs.join(" · "));
-  // default: today, current hour
-  const nl = nowLocal();
-  dayIdx = Math.max(0, days.findIndex(d => nl>=d.t && nl<d.t+24*H));
-  const hi = hours.findIndex(h => nl>=h.t && nl<h.t+H);
-  selIdx = hi>=0?hi:dayStartIdx(dayIdx);
-  $("updated").textContent = "updated "+fmtH(toLocal(new Date()));
-  render(true);
-  loadLive();
-  scheduleAlerts();
+  loadLive(); loadAlerts(); scheduleAlerts();
 }
 function showErr(m){ const e=$("err"); e.textContent=m; e.style.display="block"; $("grid").classList.remove("loading"); }
 
@@ -330,21 +391,25 @@ function computeFishing(){
       if (e.kind==="major") v = d<=60 ? 40 : d<=120 ? 40*(1-(d-60)/60)*0.6 : 0;
       else v = d<=30 ? 25 : d<=75 ? 25*(1-(d-30)/45)*0.6 : 0;
       if (v>sol){ sol=v; solWhy=e; } }
-    s += sol; if (sol>=20 && solWhy) why.push((solWhy.kind==="major"?"★ ":"☆ ")+solWhy.what+" "+fmtH(solWhy.t));
-    if (h.tide){ const mr = maxRate[Math.floor(h.t/(24*H))]||1; const mv = Math.abs(h.tide.rate)/mr;
+    s += sol; h.sol = sol; if (sol>=20 && solWhy) why.push((solWhy.kind==="major"?"★ ":"☆ ")+solWhy.what+" "+fmtH(solWhy.t));
+    if (h.tide){ const mr = maxRate[Math.floor(h.t/(24*H))]||1; const mv = Math.abs(h.tide.rate)/mr; h.mv = mv;
       s += 25*mv; if (mv>0.65) why.push("strong tide movement"); else if (mv<0.25) why.push("slack tide"); }
     const day = D.days.find(d => h.t>=d.t && h.t<d.t+24*H);
     if (day){ const dl = Math.min(Math.abs(mid-day.sunrise), Math.abs(mid-day.sunset))/M;
       if (dl<=60){ s+=15; why.push(Math.abs(mid-day.sunrise)<Math.abs(mid-day.sunset)?"dawn":"dusk"); } else if (dl<=120) s+=7; }
     const ill = SunCalc.getMoonIllumination(toReal(mid)).fraction; s += 10*Math.abs(ill-0.5)*2;
-    if (i>=3 && h.p!=null && D.hours[i-3].p!=null){ const dp = h.p - D.hours[i-3].p;
+    if (i>=3 && h.p!=null && D.hours[i-3].p!=null){ const dp = h.p - D.hours[i-3].p; h.dp = dp;
       if (dp<=-1){ s+=10; why.push("falling pressure"); } else if (dp<0.5) s+=3; else if (dp>1.5){ s-=5; why.push("rising pressure"); } }
     if (h.wind>25){ s-=30; why.push("very windy"); } else if (h.wind>18){ s-=15; why.push("windy"); } else if (h.wind>14) s-=5;
+    // fishability from the beach: surf you can't hold bottom in, heavy rain, lightning
+    if (h.wave!=null){ if (h.wave>6){ s-=30; why.push("heavy surf"); } else if (h.wave>4){ s-=15; why.push("rough surf"); } else if (h.wave>3) s-=5; }
+    if (h.code>=95){ s-=40; why.unshift("⚡ thunderstorms"); } else if (h.rain>=2.5){ s-=10; why.push("heavy rain"); }
     h.fish = Math.max(0, Math.min(100, Math.round(s))); h.why = why;
   });
 }
 
 /* ---------- rendering ---------- */
+const colW = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--colw"));
 const dayStartIdx = di => D.hours.findIndex(h => h.t>=D.days[di].t);
 function render(scrollToSel){
   $("spotName").textContent = spot.name;
@@ -357,26 +422,26 @@ function renderDays(){
   D.days.forEach((d,i) => {
     const hs = D.hours.filter(h => h.t>=d.t && h.t<d.t+24*H);
     if (!hs.length || d.t+24*H < nowLocal()-H) return; // hide past day
-    const best = Math.max(...hs.map(h=>h.fish)), airs = hs.map(h=>h.air).filter(v=>v!=null);
+    const pool = hs.filter(h=>inHours(h.t)), best = Math.max(...(pool.length?pool:hs).map(h=>h.fish)), airs = hs.map(h=>h.air).filter(v=>v!=null);
     const hiLo = airs.length>=20 ? `<div class="dt"><b>${Math.round(Math.max(...airs))}°</b> ${Math.round(Math.min(...airs))}°</div>` : "";
     const dt = new Date(d.t), b = document.createElement("button");
     b.className = "day"+(i===dayIdx?" on":"");
     b.innerHTML = `<div class="dn">${DOW[dt.getUTCDay()]}</div><div class="dd">${dt.getUTCDate()}</div>${hiLo}<div class="dot" style="background:${fishColor(best)}"></div>`;
     b.onclick = () => { dayIdx=i; const nl=nowLocal(); const hi=D.hours.findIndex(h=>nl>=h.t&&nl<h.t+H&&h.t>=d.t&&h.t<d.t+24*H);
-      selIdx = hi>=0?hi:Math.max(0, D.hours.findIndex(h=>h.t>=d.t+6*H)); render(true); };
+      select(hi>=0?hi:Math.max(0, D.hours.findIndex(h=>h.t>=d.t+6*H))); render(true); };
     el.appendChild(b);
   });
 }
 function dayHours(){ const d=D.days[dayIdx]; return D.hours.map((h,i)=>({...h,i})).filter(h=>h.t>=d.t&&h.t<d.t+24*H); }
 
 function renderGrid(scrollToSel){
-  const hs = dayHours(), W = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--colw"));
+  const hs = dayHours(), W = colW();
   const width = hs.length*W;
   const row = (cls, fn) => `<div class="row ${cls}">${hs.map(fn).join("")}</div>`;
   let html = "";
   html += row("r-hour", h => { const d=new Date(h.t); let hr=d.getUTCHours(); const ap=hr<12?"AM":"PM"; hr=hr%12||12;
     return `<div class="c" data-i="${h.i}">${hr}<small>${ap}</small></div>`; });
-  html += row("r-temp", h => `<div class="c" data-i="${h.i}" style="color:${h.air==null?"var(--muted)":tempColor(h.air)}">${h.air==null?"—":Math.round(h.air)+"°"}</div>`);
+  html += row("r-temp", h => `<div class="c" data-i="${h.i}"><b style="color:${h.air==null?"var(--muted)":tempColor(h.air)}">${h.air==null?"—":Math.round(h.air)+"°"}</b><small>${h.code>=95?"⚡":h.pop>=20?Math.round(h.pop)+"%":""}</small></div>`);
   html += row("r-wind", h => `<div class="c" data-i="${h.i}" style="background:${windColor(h.wind)}">${arrowSVG(h.dir)}<b>${Math.round(h.wind)}</b><small>${Math.round(h.gust)}</small></div>`);
   html += row("r-wave", h => h.wave==null?`<div class="c" data-i="${h.i}">—</div>`:
     `<div class="c" data-i="${h.i}"><b>${h.wave.toFixed(1)}</b><small>${Math.round(h.per)}s ${compass(h.wdir)}</small></div>`);
@@ -404,14 +469,22 @@ function renderGrid(scrollToSel){
   } else tideRow.insertAdjacentHTML("beforeend", `<div style="position:absolute;left:10px;top:28px;color:var(--muted);font-size:12px">No tide data for this station</div>`);
 
   // now line + selection
-  const nl = nowLocal();
-  if (nl>=d0 && nl<d0+hs.length*H) grid.insertAdjacentHTML("beforeend", `<div class="nowline" style="left:${(nl-d0)/H*W}px"></div>`);
+  placeNow();
   const si = hs.findIndex(h=>h.i===selIdx);
   if (si>=0) grid.insertAdjacentHTML("beforeend", `<div class="colsel" style="left:${si*W}px"></div>`);
   grid.onclick = ev => { const c = ev.target.closest("[data-i]"); const r = grid.getBoundingClientRect();
     let i = c ? +c.dataset.i : hs[Math.max(0,Math.min(hs.length-1,Math.floor((ev.clientX-r.left)/W)))].i;
-    selIdx = i; renderGrid(false); renderTiles(); };
+    select(i); renderGrid(false); renderTiles(); };
   if (scrollToSel && si>=0){ const sc=$("scroll"); sc.scrollLeft = Math.max(0, si*W - sc.clientWidth/3); }
+}
+
+// The red "now" line; moved every minute without rebuilding the grid.
+function placeNow(){
+  const grid = $("grid"), hs = dayHours(); if (!hs.length) return;
+  const d0 = hs[0].t, nl = nowLocal(); let el = grid.querySelector(".nowline");
+  if (nl>=d0 && nl<d0+hs.length*H){ if (!el){ el = document.createElement("div"); el.className = "nowline"; grid.appendChild(el); }
+    el.style.left = ((nl-d0)/H*colW())+"px"; }
+  else if (el) el.remove();
 }
 
 // Hero scene for the selected hour (hero.js). Tapping an hour in its strip selects that hour.
@@ -426,8 +499,8 @@ function renderHero(){
   const ill = SunCalc.getMoonIllumination(toReal(at));
   Hero.render(svg, {hour:hr(at), sunrise:hr(day.sunrise), sunset:hr(day.sunset), wind:h.wind, gust:h.gust, windFrom:h.dir,
     wave:h.wave, period:h.per, sst:h.sst, air:h.air, feels:h.feels, tide, cloud:h.cloud||0, rain:h.rain||0, uv:h.uv, moon:{ill:ill.fraction, waxing:ill.phase<0.5},
-    shore:spot.shore==null?90:spot.shore, scores:hs.map(x=>x.fish), cur, curLabel:fmtH(h.t), isNow, hourLabels:hs.map(x=>fmtH(x.t))},
-    k => { selIdx = hs[k].i; renderGrid(true); renderTiles(); });
+    shore:D.shore, pop:h.pop, storm:h.code>=95, starOk:hs.map(x=>x.t+H>nowLocal()&&inHours(x.t)), scores:hs.map(x=>x.fish), cur, curLabel:fmtH(h.t), isNow, hourLabels:hs.map(x=>fmtH(x.t))},
+    k => { select(hs[k].i); renderGrid(true); renderTiles(); });
 }
 
 function renderTiles(){
@@ -480,13 +553,13 @@ function bestWindows(cand){
 function scheduleAlerts(){
   const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.schedule;
   if (!bridge || !D) return;
-  const all = D.hours.map((h,i)=>({...h,i})), items = [];
+  const all = D.hours.map((h,i)=>({...h,i})), items = [], today = dayOf(nowLocal());
   D.days.forEach((d, k) => {
     const next = D.days[k+1];
-    if (!next || d.t+20*H <= nowLocal()) return;
+    if (!next || d.t+20*H <= nowLocal() || k>today+2) return;   // 3 nights ahead at most: older forecasts aren't worth an alert
     const hs = all.filter(h => h.t>=next.t && h.t<next.t+24*H);
     if (hs.length < 24) return;
-    const wins = bestWindows(hs).slice(0,3), dt = new Date(next.t);
+    const ok = hs.filter(h=>inHours(h.t)), wins = bestWindows(ok).slice(0,3), dt = new Date(next.t);
     let body;
     if (wins.length){
       const list = wins.slice().sort((a,b)=>a.start-b.start).map(w=>`${fmtH(w.start)}–${fmtH(w.end)} ${fishLabel(Math.round(w.sum/w.n))}`).join(", ");
@@ -494,9 +567,10 @@ function scheduleAlerts(){
       body = `Best: ${list}. At ${fmtH(b.start)}: wind ${Math.round(h.wind)} kts ${compass(h.dir)}`+
         (h.wave!=null?`, waves ${h.wave.toFixed(1)} ft`:"")+(h.air!=null?`, air ${Math.round(h.air)}°F`:"")+(td?`, tide ${td.rate>0.02?"rising":td.rate<-0.02?"falling":"slack"}`:"")+".";
     } else {
-      const h = hs.reduce((a,b)=>b.fish>a.fish?b:a);
+      const h = (ok.length?ok:hs).reduce((a,b)=>b.fish>a.fish?b:a);
       body = `No standout window. Best hour ${fmtH(h.t)} (${fishLabel(h.fish)}), wind ${Math.round(h.wind)} kts ${compass(h.dir)}.`;
     }
+    if (k>today) body += ` (forecast from ${DOWL[new Date(nowLocal()).getUTCDay()]})`;   // fires on a later night; say how old it is
     items.push({day:new Date(d.t).toISOString().slice(0,10), title:`Tomorrow · ${DOWL[dt.getUTCDay()]} · ${spot.name}`, body});
   });
   bridge.postMessage(items);
@@ -504,18 +578,18 @@ function scheduleAlerts(){
 
 function renderBest(){
   const hs = dayHours(); const el = $("best");
-  const nl = nowLocal(); const cand = hs.filter(h=>h.t+H>nl);
+  const nl = nowLocal(); const cand = hs.filter(h=>h.t+H>nl && inHours(h.t));
   if (!cand.length){ el.innerHTML=""; return; }
   const wins = bestWindows(cand);
   el.innerHTML = `<span class="lbl">BEST</span>` + (wins.length ? wins.slice(0,3).sort((a,b)=>a.start-b.start).map(w => {
     const s = Math.round(w.sum/w.n);
     return `<button class="chip" data-i="${w.i}" style="box-shadow:inset 0 0 0 1.5px ${fishColor(s)}">${fmtH(w.start)}–${fmtH(w.end)} · ${fishLabel(s)}</button>`; }).join("")
     : `<span class="chip">No standout window — conditions are flat</span>`);
-  el.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { selIdx=+b.dataset.i; renderGrid(true); renderTiles(); });
+  el.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { select(+b.dataset.i); renderGrid(true); renderTiles(); });
 }
 
 /* ---------- location sheet ---------- */
-let stationList = null;
+let stationList = null, pendingSpot = Promise.resolve(), sheetKey = "";
 async function stations(){
   if (stationList) return stationList;
   const cached = store.get("tideline.stations", null);
@@ -545,7 +619,7 @@ async function pickNearestStation(){
     if (s) spot.station = {id:s.id, name:s.name}; }catch(e){}
 }
 function setSpot(name, lat, lon){ spot = {name, lat:+(+lat).toFixed(4), lon:+(+lon).toFixed(4), station:spot.station};
-  pickNearestStation().then(()=>{ store.set("tideline.spot", spot); showStations(); }); }
+  pendingSpot = pickNearestStation().then(()=>{ store.set("tideline.spot", spot); showStations(); }); }
 function showSpots(){
   $("spots").innerHTML = SPOTS.map((p,i)=>{ const on = spot.name===p.name && Math.abs(spot.lat-p.lat)<1e-3 && Math.abs(spot.lon-p.lon)<1e-3;
     return `<button class="opt${on?" on":""}" data-spot="${i}">${p.name}<br><small>${p.sub}</small></button>`; }).join("");
@@ -553,14 +627,23 @@ function showSpots(){
     spot = {name:p.name, lat:p.lat, lon:p.lon, shore:p.shore, station:PIER}; store.set("tideline.spot", spot);
     $("sheet").classList.remove("open"); load(); });
 }
-$("spotBtn").onclick = () => { $("sheet").classList.add("open"); $("q").value=""; $("results").innerHTML=""; showSpots(); showStations(); };
-$("closeBtn").onclick = () => { $("sheet").classList.remove("open"); load(); };
+$("spotBtn").onclick = () => { sheetKey = spotKey(); $("sheet").classList.add("open"); $("q").value=""; $("results").innerHTML=""; showSpots(); showStations(); fillHours(); };
+// Reload only if the spot or tide station changed (after any station lookup still running); otherwise just redraw.
+$("closeBtn").onclick = async () => { $("sheet").classList.remove("open"); await pendingSpot;
+  if (!D || spotKey()!==sheetKey) load(); else { render(false); scheduleAlerts(); } };
+function fillHours(){
+  const lab = h => (h%12||12)+(h<12?" AM":" PM"), opts = sel => [...Array(24)].map((_,h)=>`<option value="${h}"${sel===h?" selected":""}>${lab(h)}</option>`).join("");
+  $("hrFrom").innerHTML = `<option value="">Any time</option>`+opts(HRS?HRS.from:null);
+  $("hrTo").innerHTML = opts(HRS?HRS.to:20); $("hrTo").disabled = !HRS;
+}
+$("hrFrom").onchange = $("hrTo").onchange = () => { const f = $("hrFrom").value;
+  HRS = f==="" ? null : {from:+f, to:+$("hrTo").value}; store.set("surecast.hours", HRS); $("hrTo").disabled = !HRS; };
 $("sheet").onclick = e => { if (e.target.id==="sheet") $("closeBtn").onclick(); };
 let qT; $("q").oninput = () => { clearTimeout(qT); qT = setTimeout(async () => {
   const q = $("q").value.trim(); if (q.length<3){ $("results").innerHTML=""; return; }
   try{ const j = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en`);
-    $("results").innerHTML = (j.results||[]).map(r=>`<button class="opt" data-lat="${r.latitude}" data-lon="${r.longitude}" data-name="${r.name}">${r.name}<br><small>${[r.admin1,r.country].filter(Boolean).join(", ")}</small></button>`).join("") || `<div class="opt"><small>No matches</small></div>`;
-    $("results").querySelectorAll("[data-lat]").forEach(b => b.onclick = () => { setSpot(b.dataset.name, b.dataset.lat, b.dataset.lon); $("results").innerHTML = `<div class="opt on">${b.dataset.name} selected</div>`; });
+    $("results").innerHTML = (j.results||[]).map(r=>`<button class="opt" data-lat="${r.latitude}" data-lon="${r.longitude}" data-name="${esc(r.name)}">${esc(r.name)}<br><small>${[r.admin1,r.country].filter(Boolean).join(", ")}</small></button>`).join("") || `<div class="opt"><small>No matches</small></div>`;
+    $("results").querySelectorAll("[data-lat]").forEach(b => b.onclick = () => { setSpot(b.dataset.name, b.dataset.lat, b.dataset.lon); $("results").innerHTML = `<div class="opt on">${esc(b.dataset.name)} selected</div>`; });
   }catch(e){ $("results").innerHTML = `<div class="opt"><small>Search failed</small></div>`; }
 }, 350); };
 window.nativeLocation = (lat, lon) => { setSpot("My location", lat, lon); $("geoBtn").textContent = "📍 Using current location"; };
@@ -573,9 +656,84 @@ $("geoBtn").onclick = () => {
   navigator.geolocation.getCurrentPosition(p => { setSpot("My location", p.coords.latitude, p.coords.longitude); $("geoBtn").textContent = "📍 Using current location"; },
     () => { $("geoBtn").textContent = "📍 Location unavailable"; }, {timeout:10000}); };
 
+/* ---------- info sheet (alert details, catch log) ---------- */
+function openInfo(title, html){ $("infoTitle").textContent = title; $("infoBody").innerHTML = html; $("info").classList.add("open"); }
+$("infoClose").onclick = () => $("info").classList.remove("open");
+$("info").onclick = e => { if (e.target.id==="info") $("infoClose").onclick(); };
+
+/* ---------- National Weather Service alerts (US only): the beach itself plus the water just offshore ---------- */
+let ALERTS = [];
+async function loadAlerts(){
+  const key = D.key, pts = [[spot.lat, spot.lon]], seen = {}, out = [];
+  if (D.sea) pts.push([D.sea.lat, D.sea.lon]);   // marine zone: small craft advisories and the like
+  await Promise.all(pts.map(async p => { try{
+    const j = await getJSON(`https://api.weather.gov/alerts/active?point=${(+p[0]).toFixed(4)},${(+p[1]).toFixed(4)}`);
+    (j.features||[]).forEach(f => { const a = f.properties; if (!a || seen[a.id]) return; seen[a.id] = 1;
+      out.push({event:a.event, sev:a.severity, headline:a.headline, desc:a.description, instr:a.instruction, ends:a.ends||a.expires}); });
+  }catch(e){} }));
+  if (!D || D.key!==key) return;
+  const rank = a => ({Extreme:0, Severe:1, Moderate:2}[a.sev] ?? 3);
+  ALERTS = out.sort((a,b)=>rank(a)-rank(b)); renderAlerts();
+}
+function renderAlerts(){
+  const el = $("alerts");
+  el.innerHTML = ALERTS.map((a,i) => { const e = a.ends ? toLocal(new Date(a.ends)) : null, same = e && ymd(e)===ymd(nowLocal());
+    return `<button class="alert${a.sev==="Extreme"||a.sev==="Severe"?" sev":""}" data-a="${i}">⚠ ${esc(a.event)}${e?`<small>until ${same?"":DOWL[new Date(e).getUTCDay()]+" "}${fmtH(e)}</small>`:""}</button>`; }).join("");
+  el.querySelectorAll("[data-a]").forEach(b => b.onclick = () => { const a = ALERTS[+b.dataset.a];
+    openInfo(a.event, [a.headline, a.desc, a.instr].filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")); });
+}
+
+/* ---------- catch log: one tap saves the conditions at that moment, to tune the score later ---------- */
+const catches = () => store.get("surecast.catches", []);
+function updCatchBtn(){ const n = catches().length; $("logBtn").textContent = n ? `Catch log (${n})` : "Catch log"; }
+$("catchBtn").onclick = () => {
+  if (!D) return; const hi = curHourIdx(); if (hi<0) return;
+  const h = D.hours[hi], td = tideAt(nowLocal()), list = catches();
+  list.push({t:Date.now(), lt:nowLocal(), spot:spot.name, lat:spot.lat, lon:spot.lon, score:h.fish, why:h.why, sol:h.sol, mv:h.mv, dp:h.dp,
+    wind:h.wind, dir:h.dir, gust:h.gust, wave:h.wave, per:h.per, sst:h.sst, air:h.air, p:h.p, cloud:h.cloud, rain:h.rain,
+    tide: td ? {h:+td.h.toFixed(2), rate:+td.rate.toFixed(3)} : null, moon:+SunCalc.getMoonIllumination(new Date()).fraction.toFixed(2),
+    live: LIVE ? {kn:LIVE.kn, dir:LIVE.dir} : null, note:""});
+  store.set("surecast.catches", list); updCatchBtn();
+  const b = $("catchBtn"); b.textContent = "✓ Logged "+fmtH(nowLocal()); b.disabled = true;
+  setTimeout(() => { b.textContent = "🎣 Caught one"; b.disabled = false; }, 4000);
+};
+function showLog(){
+  const list = catches().slice().reverse(); let html;
+  if (!list.length) html = `<p>Tap “Caught one” whenever you land a fish. SureCast saves the wind, waves, tide, temperatures and score at that moment, so the fishing score can later be tuned to what actually works for you.</p>`;
+  else {
+    const n = list.length, pct = k => Math.round(k/n*100)+"%";
+    html = `<p>${n} catch${n>1?"es":""} · average score ${Math.round(list.reduce((a,c)=>a+c.score,0)/n)} · ${pct(list.filter(c=>c.mv>0.5).length)} on moving tide · ${pct(list.filter(c=>c.sol>=20).length)} in a ★/☆ window</p>`+
+      list.map(c => { const d = new Date(c.lt), tr = c.tide ? (c.tide.rate>0.02?"rising":c.tide.rate<-0.02?"falling":"slack") : null;
+        return `<div class="entry"><button class="x" data-del="${c.t}">Delete</button><b>${DOWL[d.getUTCDay()]} ${d.getUTCMonth()+1}/${d.getUTCDate()} · ${fmtHM(c.lt)}</b> · ${esc(c.spot)}<br>`+
+          `score <b>${c.score}</b> ${fishLabel(c.score)} · wind ${Math.round(c.wind)} kts ${compass(c.dir)}`+(c.wave!=null?` · waves ${c.wave.toFixed(1)} ft`:"")+
+          (tr?` · tide ${tr} ${c.tide.h.toFixed(1)}′`:"")+(c.sst!=null?` · water ${Math.round(c.sst)}°`:"")+(c.air!=null?` · air ${Math.round(c.air)}°`:"")+
+          `<input data-note="${c.t}" placeholder="Note (species, bait…)" value="${esc(c.note)}" autocomplete="off"></div>`; }).join("");
+  }
+  openInfo("Catch log", html);
+  const body = $("infoBody");
+  body.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    if (!b.dataset.sure){ b.dataset.sure = 1; b.textContent = "Tap again to delete"; return; }
+    store.set("surecast.catches", catches().filter(c => c.t!==+b.dataset.del)); updCatchBtn(); showLog(); });
+  body.querySelectorAll("[data-note]").forEach(inp => inp.onchange = () => { const list = catches(), c = list.find(c => c.t===+inp.dataset.note);
+    if (c){ c.note = inp.value.trim(); store.set("surecast.catches", list); } });
+}
+$("logBtn").onclick = showLog;
+updCatchBtn();
+
+/* ---------- keeping it current ---------- */
+// Every minute: move the now-line, roll to the next hour if the user is following "now", refresh data past 30 min old.
+function tick(){
+  if (!D || document.hidden) return;
+  if (Date.now()-D.fetched > 30*M && Date.now()-lastTry > 5*M && !$("sheet").classList.contains("open")){ load(true); return; }
+  const hi = curHourIdx();
+  if (followNow && hi>=0 && hi!==selIdx){ selIdx = hi; dayIdx = dayOf(D.hours[hi].t); render(true); }
+  else { placeNow(); if (followNow) renderTiles(); renderBest(); }
+  markUpdated();
+}
+$("verBtn").onclick = () => { $("updated").textContent = "↻ …"; load(true); };
 load();
-setInterval(() => { if (D && Date.now()-D.fetched > 30*M) load(); }, 5*M);
-document.addEventListener("visibilitychange", () => { if (!document.hidden && D && Date.now()-D.fetched > 10*M) load(); });
+setInterval(tick, M);
+document.addEventListener("visibilitychange", () => { if (document.hidden || !D) return; if (Date.now()-D.fetched > 10*M) load(true); else tick(); });
 </script>
 </body>
 </html>
