@@ -89,7 +89,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .alert.sev{background:#5a1f24;color:#ffc9c9}
 .alert small{margin-left:auto;font-weight:500;opacity:.8;white-space:nowrap}
 .catch{display:flex;gap:7px;padding:8px 14px 2px}
-.catch button{flex:1;border-radius:12px;padding:10px;background:var(--panel);font-weight:600;font-size:13px}
+.catch button{flex:1;border-radius:12px;padding:10px 4px;white-space:nowrap;background:var(--panel);font-weight:600;font-size:13px}
 .catch #catchBtn{background:var(--panel2);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .hrs{display:flex;align-items:center;gap:8px;color:var(--muted)}
 .hrs select{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
@@ -98,6 +98,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .entry{background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:6px;font-size:12.5px;color:var(--muted);line-height:1.45}
 .entry b{color:var(--text)}.entry .x{float:right;color:#ff8f8f;padding:0 0 6px 10px;font-size:12px}
 .entry input{margin-top:7px;padding:7px 9px;font-size:13px}
+#infoBody p b{color:var(--text)}
 #infoBody p{white-space:pre-wrap;color:var(--muted);font-size:12.5px;line-height:1.5;margin-bottom:8px}
 /* sheet */
 .sheet{position:fixed;inset:0;background:rgba(3,10,18,.6);display:none;align-items:flex-end;justify-content:center;z-index:10}
@@ -124,7 +125,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <div class="tiles" id="tiles"></div>
 <div class="live" id="live" style="display:none"></div>
 <div class="best" id="best"></div>
-<div class="catch"><button id="catchBtn">🎣 Caught one</button><button id="logBtn">Catch log</button></div>
+<div class="catch"><button id="catchBtn">🎣 Caught one</button><button id="blankBtn">No bites</button><button id="logBtn">Log</button></div>
 <div class="err" id="err"></div>
 <div class="tl" id="tl">
   <div class="labels">
@@ -140,7 +141,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <div class="legend">
   <span><i style="background:var(--great)"></i>Great</span><span><i style="background:var(--good)"></i>Good</span><span><i style="background:var(--fair)"></i>Fair</span><span><i style="background:var(--poor)"></i>Poor</span><span style="color:#ff8f8f">│ now</span>
 </div>
-<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: measured at the nearest station — WeatherSTEM / Florida Severe Weather Network at Atlantic Dunes Park, or NOAA CO-OPS · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement (rated against the strongest swing of the two-week cycle) + dawn/dusk + pressure trend, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
+<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: measured at the nearest station — WeatherSTEM / Florida Severe Weather Network at Atlantic Dunes Park, or NOAA CO-OPS · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: tide movement (rated against the strongest swing of the two-week cycle) + dawn/dusk + solunar (moon transit/rise/set) + moon phase, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
 
 <div class="sheet" id="sheet">
   <div class="panel">
@@ -166,7 +167,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 <script>
 "use strict";
-const VERSION = "0.21";
+const VERSION = "0.22";
 // User's regular spots. All use Lake Worth Pier: the nearest ocean-side tide station (closer ones are on the ICWW).
 const PIER = {id:"8722670", name:"Lake Worth Pier (ocean)"};
 // Spots on the beach between Lake Worth Pier and Hillsboro Inlet get a blend of both ocean stations,
@@ -408,23 +409,25 @@ function computeFishing(){
   D.events = evAll;
   D.hours.forEach(h => { h.tide = tideAt(h.t+30*M); });
   D.hours.forEach((h, i) => {
-    const mid = h.t + 30*M; let s = 10; const why = [];
+    // Weights (max 100) follow a literature check on 2026-11-11: nothing measured for surf fish, so they lean on the
+    // best-supported factors (low light) and the user's own (moving water); solunar is weakly supported, pressure trend not at all.
+    //   base 25 · tide movement 35 · dawn/dusk 20 · solunar 15 (minor 8) · moon phase 5, then penalties for conditions you can't fish in.
+    const mid = h.t + 30*M; let s = 25; const why = [];
     let sol = 0, solWhy = null;
     for (const e of evAll){ const d = Math.abs(e.t-mid)/M;
       let v = 0;
-      if (e.kind==="major") v = d<=60 ? 40 : d<=120 ? 40*(1-(d-60)/60)*0.6 : 0;
-      else v = d<=30 ? 25 : d<=75 ? 25*(1-(d-30)/45)*0.6 : 0;
+      if (e.kind==="major") v = d<=60 ? 15 : d<=120 ? 15*(1-(d-60)/60)*0.6 : 0;
+      else v = d<=30 ? 8 : d<=75 ? 8*(1-(d-30)/45)*0.6 : 0;
       if (v>sol){ sol=v; solWhy=e; } }
-    s += sol; h.sol = sol; if (sol>=20 && solWhy) why.push((solWhy.kind==="major"?"★ ":"☆ ")+solWhy.what+" "+fmtH(solWhy.t));
+    s += sol; h.sol = sol; if (sol>=8 && solWhy) why.push((solWhy.kind==="major"?"★ ":"☆ ")+solWhy.what+" "+fmtH(solWhy.t));
     // tide movement against the strongest rate of the whole spring-neap cycle, so weak-swing days score lower than strong ones
     if (h.tide){ const mv = Math.min(1, Math.abs(h.tide.rate)/(D.refRate||1)); h.mv = mv;
-      s += 25*mv; if (mv>0.65) why.push("strong tide movement"); else if (mv<0.25) why.push("slack tide"); }
+      s += 35*mv; if (mv>0.65) why.push("strong tide movement"); else if (mv<0.25) why.push("slack tide"); }
     const day = D.days.find(d => h.t>=d.t && h.t<d.t+24*H);
     if (day){ const dl = Math.min(Math.abs(mid-day.sunrise), Math.abs(mid-day.sunset))/M;
-      if (dl<=60){ s+=15; why.push(Math.abs(mid-day.sunrise)<Math.abs(mid-day.sunset)?"dawn":"dusk"); } else if (dl<=120) s+=7; }
-    const ill = SunCalc.getMoonIllumination(toReal(mid)).fraction; s += 10*Math.abs(ill-0.5)*2;
-    if (i>=3 && h.p!=null && D.hours[i-3].p!=null){ const dp = h.p - D.hours[i-3].p; h.dp = dp;
-      if (dp<=-1){ s+=10; why.push("falling pressure"); } else if (dp<0.5) s+=3; else if (dp>1.5){ s-=5; why.push("rising pressure"); } }
+      if (dl<=60){ s+=20; why.push(Math.abs(mid-day.sunrise)<Math.abs(mid-day.sunset)?"dawn":"dusk"); } else if (dl<=120) s+=10; }
+    const ill = SunCalc.getMoonIllumination(toReal(mid)).fraction; s += 5*Math.abs(ill-0.5)*2;
+    if (i>=3 && h.p!=null && D.hours[i-3].p!=null) h.dp = h.p - D.hours[i-3].p;   // 3 h pressure change: not scored, kept for the catch log
     if (h.wind>25){ s-=30; why.push("very windy"); } else if (h.wind>18){ s-=15; why.push("windy"); } else if (h.wind>14) s-=5;
     // fishability from the beach: surf you can't hold bottom in, heavy rain, lightning
     if (h.wave!=null){ if (h.wave>6){ s-=30; why.push("heavy surf"); } else if (h.wave>4){ s-=15; why.push("rough surf"); } else if (h.wave>3) s-=5; }
@@ -710,33 +713,39 @@ function renderAlerts(){
     openInfo(a.event, [a.headline, a.desc, a.instr].filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")); });
 }
 
-/* ---------- catch log: one tap saves the conditions at that moment, to tune the score later ---------- */
+/* ---------- fishing log: one tap saves the conditions at that moment, so the score can be tuned to real results ---------- */
+// kind "catch" = landed a fish; "none" = fishing right now and nothing is biting. The second is what makes the log a test:
+// if the score means anything, catches should sit at higher scores than no-bite taps.
 const catches = () => store.get("surecast.catches", []);
-function updCatchBtn(){ const n = catches().length; $("logBtn").textContent = n ? `Catch log (${n})` : "Catch log"; }
-$("catchBtn").onclick = () => {
+const isCatch = c => c.kind!=="none";   // entries from before v0.22 have no kind and are all catches
+function updCatchBtn(){ const n = catches().length; $("logBtn").textContent = n ? `Log (${n})` : "Log"; }
+function logNow(kind, btn, label){
   if (!D) return; const hi = curHourIdx(); if (hi<0) return;
   const h = D.hours[hi], td = tideAt(nowLocal()), list = catches();
-  list.push({t:Date.now(), lt:nowLocal(), spot:spot.name, lat:spot.lat, lon:spot.lon, score:h.fish, why:h.why, sol:h.sol, mv:h.mv, dp:h.dp,
+  list.push({kind, t:Date.now(), lt:nowLocal(), spot:spot.name, lat:spot.lat, lon:spot.lon, score:h.fish, why:h.why, sol:h.sol, mv:h.mv, dp:h.dp,
     wind:h.wind, dir:h.dir, gust:h.gust, wave:h.wave, per:h.per, sst:h.sst, air:h.air, p:h.p, cloud:h.cloud, rain:h.rain,
     tide: td ? {h:+td.h.toFixed(2), rate:+td.rate.toFixed(3)} : null, moon:+SunCalc.getMoonIllumination(new Date()).fraction.toFixed(2),
     live: LIVE ? {name:LIVE.name, kn:+LIVE.kn.toFixed(1), dir:LIVE.dir, air:LIVE.air} : null, note:""});
   store.set("surecast.catches", list); updCatchBtn();
-  const b = $("catchBtn"); b.textContent = "✓ Logged "+fmtH(nowLocal()); b.disabled = true;
-  setTimeout(() => { b.textContent = "🎣 Caught one"; b.disabled = false; }, 4000);
-};
+  btn.textContent = "✓ "+fmtH(nowLocal()); btn.disabled = true;
+  setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 4000);
+}
+$("catchBtn").onclick = () => logNow("catch", $("catchBtn"), "🎣 Caught one");
+$("blankBtn").onclick = () => logNow("none", $("blankBtn"), "No bites");
 function showLog(){
   const list = catches().slice().reverse(); let html;
-  if (!list.length) html = `<p>Tap “Caught one” whenever you land a fish. SureCast saves the wind, waves, tide, temperatures and score at that moment, so the fishing score can later be tuned to what actually works for you.</p>`;
+  if (!list.length) html = `<p>Tap “Caught one” when you land a fish, and “No bites” when you've been fishing a while with nothing. Each tap saves the wind, waves, tide, temperatures and score at that moment. Once there are a few dozen of both, the fishing score can be tuned to what actually works for you.</p>`;
   else {
-    const n = list.length, pct = k => Math.round(k/n*100)+"%";
-    html = `<p>${n} catch${n>1?"es":""} · average score ${Math.round(list.reduce((a,c)=>a+c.score,0)/n)} · ${pct(list.filter(c=>c.mv>0.5).length)} on moving tide · ${pct(list.filter(c=>c.sol>=20).length)} in a ★/☆ window</p>`+
+    const got = list.filter(isCatch), none = list.filter(c=>!isCatch(c)), avg = a => a.length ? Math.round(a.reduce((x,c)=>x+c.score,0)/a.length) : "—";
+    const pct = (a, f) => a.length ? Math.round(a.filter(f).length/a.length*100)+"%" : "—";
+    html = `<p>${got.length} catch${got.length===1?"":"es"} · ${none.length} no-bite tap${none.length===1?"":"s"}\nAverage score: catches <b>${avg(got)}</b> · no bites <b>${avg(none)}</b>\nOn moving tide: catches ${pct(got,c=>c.mv>0.5)} · no bites ${pct(none,c=>c.mv>0.5)}</p>`+
       list.map(c => { const d = new Date(c.lt), tr = c.tide ? (c.tide.rate>0.02?"rising":c.tide.rate<-0.02?"falling":"slack") : null;
-        return `<div class="entry"><button class="x" data-del="${c.t}">Delete</button><b>${DOWL[d.getUTCDay()]} ${d.getUTCMonth()+1}/${d.getUTCDate()} · ${fmtHM(c.lt)}</b> · ${esc(c.spot)}<br>`+
+        return `<div class="entry"><button class="x" data-del="${c.t}">Delete</button><b>${isCatch(c)?"🎣 Catch":"No bites"} · ${DOWL[d.getUTCDay()]} ${d.getUTCMonth()+1}/${d.getUTCDate()} · ${fmtHM(c.lt)}</b><br>${esc(c.spot)} · `+
           `score <b>${c.score}</b> ${fishLabel(c.score)} · wind ${Math.round(c.wind)} kts ${compass(c.dir)}`+(c.wave!=null?` · waves ${c.wave.toFixed(1)} ft`:"")+
-          (tr?` · tide ${tr} ${c.tide.h.toFixed(1)}′`:"")+(c.sst!=null?` · water ${Math.round(c.sst)}°`:"")+(c.air!=null?` · air ${Math.round(c.air)}°`:"")+
+          (tr?` · tide ${tr}`:"")+(c.sst!=null?` · water ${Math.round(c.sst)}°`:"")+(c.air!=null?` · air ${Math.round(c.air)}°`:"")+
           `<input data-note="${c.t}" placeholder="Note (species, bait…)" value="${esc(c.note)}" autocomplete="off"></div>`; }).join("");
   }
-  openInfo("Catch log", html);
+  openInfo("Fishing log", html);
   const body = $("infoBody");
   body.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
     if (!b.dataset.sure){ b.dataset.sure = 1; b.textContent = "Tap again to delete"; return; }
