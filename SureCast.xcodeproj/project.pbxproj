@@ -130,7 +130,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = SureCast;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows wind, waves and tides for where you're fishing.";
@@ -141,7 +141,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.19;
+				MARKETING_VERSION = 0.20;
 				PRODUCT_BUNDLE_IDENTIFIER = com.willspro.tideline;
 				PRODUCT_NAME = SureCast;
 				SDKROOT = iphoneos;
@@ -154,7 +154,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = SureCast;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows wind, waves and tides for where you're fishing.";
@@ -165,7 +165,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.19;
+				MARKETING_VERSION = 0.20;
 				PRODUCT_BUNDLE_IDENTIFIER = com.willspro.tideline;
 				PRODUCT_NAME = SureCast;
 				SDKROOT = iphoneos;

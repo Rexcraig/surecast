@@ -140,7 +140,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <div class="legend">
   <span><i style="background:var(--great)"></i>Great</span><span><i style="background:var(--good)"></i>Good</span><span><i style="background:var(--fair)"></i>Fair</span><span><i style="background:var(--poor)"></i>Poor</span><span style="color:#ff8f8f">│ now</span>
 </div>
-<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: NOAA CO-OPS station measurement · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement + dawn/dusk + pressure trend, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
+<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: measured at the nearest station — WeatherSTEM / Florida Severe Weather Network at Atlantic Dunes Park, or NOAA CO-OPS · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement + dawn/dusk + pressure trend, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
 
 <div class="sheet" id="sheet">
   <div class="panel">
@@ -166,7 +166,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 <script>
 "use strict";
-const VERSION = "0.19";
+const VERSION = "0.20";
 // User's regular spots. All use Lake Worth Pier: the nearest ocean-side tide station (closer ones are on the ICWW).
 const PIER = {id:"8722670", name:"Lake Worth Pier (ocean)"};
 // Spots on the beach between Lake Worth Pier and Hillsboro Inlet get a blend of both ocean stations,
@@ -319,19 +319,27 @@ async function load(keep){
 }
 function showErr(m){ const e=$("err"); e.textContent=m; e.style.display="block"; $("grid").classList.remove("loading"); }
 
-/* ---------- live measured wind: nearest NOAA station with a wind sensor ---------- */
-let LIVE = null;
+/* ---------- live measured conditions: the nearest station with a wind sensor ---------- */
+// NOAA CO-OPS stations (metstations.js) plus the WeatherSTEM station on the beach at Atlantic Dunes Park.
+// WeatherSTEM needs an API key, so it is read through the SureCast web Worker, which holds the key and caches 2 min.
+const PARK = {name:"Atlantic Dunes Park", lat:26.4417, lon:-80.0605, url:"https://occhiphoto.com/surecast/api/live"};
+let LIVE = null, lastLive = 0;
 async function loadLive(){
-  const {lat, lon} = spot, cos = Math.cos(lat*Math.PI/180);
-  const near = (window.MET_STATIONS||[]).map(s=>({s, d:Math.hypot((s[2]-lat)*111, (s[3]-lon)*111*cos)}))
+  lastLive = Date.now();
+  const {lat, lon} = spot, cos = Math.cos(lat*Math.PI/180), km = (a,b) => Math.hypot((a-lat)*111, (b-lon)*111*cos);
+  const near = (window.MET_STATIONS||[]).map(s=>({id:s[0], name:s[1], d:km(s[2],s[3])})).concat({park:true, name:PARK.name, d:km(PARK.lat,PARK.lon)})
     .filter(x=>x.d<80).sort((a,b)=>a.d-b.d).slice(0,3);
   let found = null;
-  for (const {s, d} of near){
+  for (const s of near){
     try{
-      const j = await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=wind&application=surecast&station=${s[0]}&date=latest&units=english&time_zone=gmt&format=json`);
+      if (s.park){
+        const o = await getJSON(PARK.url); if (o.mph==null || !(Date.now()-o.t < 30*M)) continue;   // skip if the station has gone quiet
+        found = {name:s.name, d:s.d, t:o.t, kn:o.mph/1.15078, gust:o.gustMph==null?null:o.gustMph/1.15078, dir:o.dir, air:o.air}; break;
+      }
+      const j = await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=wind&application=surecast&station=${s.id}&date=latest&units=english&time_zone=gmt&format=json`);
       const o = j.data && j.data[0]; if (!o || o.s==="" || isNaN(+o.s)) continue;
       const t = Date.parse(o.t.replace(" ","T")+":00Z"); if (!(Date.now()-t < 2*H)) continue; // skip stale stations
-      found = {name:s[1], d, t, kn:+o.s, gust:+o.g, dir:+o.d}; break;
+      found = {name:s.name, d:s.d, t, kn:+o.s, gust:+o.g, dir:+o.d}; break;
     }catch(e){}
   }
   if (spot.lat!==lat || spot.lon!==lon) return; // location changed while loading
@@ -342,8 +350,8 @@ function renderLive(){
   if (!LIVE){ el.style.display="none"; return; }
   const L = LIVE, mi = L.d*0.621;
   el.style.display="flex";
-  el.innerHTML = `<span class="dot"></span><span class="lbl">LIVE</span>${arrowSVG(L.dir,"#e8f1fa",16)}<span style="white-space:nowrap"><b>${Math.round(L.kn)}</b> kts <span class="mph">${Math.round(L.kn*1.15078)} mph</span> ${compass(L.dir)} · gust <b>${Math.round(L.gust)}</b></span>`+
-    `<span style="margin-left:auto;text-align:right;font-size:11px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.name}<br>${mi<1?"<1":Math.round(mi)} mi · ${fmtH(toLocal(new Date(L.t)))}</span>`;
+  el.innerHTML = `<span class="dot"></span><span class="lbl">LIVE</span>${arrowSVG(L.dir,"#e8f1fa",16)}<span style="white-space:nowrap"><b>${Math.round(L.kn)}</b> kts <span class="mph">${Math.round(L.kn*1.15078)} mph</span> ${compass(L.dir)}${L.gust==null||isNaN(L.gust)?"":` · gust <b>${Math.round(L.gust)}</b>`}</span>`+
+    `<span style="margin-left:auto;text-align:right;font-size:11px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.name}<br>${mi<1?"&lt;1":Math.round(mi)} mi${L.air!=null?` · <b style="font-size:11px">${Math.round(L.air)}°F</b>`:""} · ${fmtH(toLocal(new Date(L.t)))}</span>`;
 }
 
 /* ---------- tide model: cosine interpolation between NOAA highs/lows ---------- */
@@ -692,7 +700,7 @@ $("catchBtn").onclick = () => {
   list.push({t:Date.now(), lt:nowLocal(), spot:spot.name, lat:spot.lat, lon:spot.lon, score:h.fish, why:h.why, sol:h.sol, mv:h.mv, dp:h.dp,
     wind:h.wind, dir:h.dir, gust:h.gust, wave:h.wave, per:h.per, sst:h.sst, air:h.air, p:h.p, cloud:h.cloud, rain:h.rain,
     tide: td ? {h:+td.h.toFixed(2), rate:+td.rate.toFixed(3)} : null, moon:+SunCalc.getMoonIllumination(new Date()).fraction.toFixed(2),
-    live: LIVE ? {kn:LIVE.kn, dir:LIVE.dir} : null, note:""});
+    live: LIVE ? {name:LIVE.name, kn:+LIVE.kn.toFixed(1), dir:LIVE.dir, air:LIVE.air} : null, note:""});
   store.set("surecast.catches", list); updCatchBtn();
   const b = $("catchBtn"); b.textContent = "✓ Logged "+fmtH(nowLocal()); b.disabled = true;
   setTimeout(() => { b.textContent = "🎣 Caught one"; b.disabled = false; }, 4000);
@@ -728,6 +736,7 @@ function tick(){
   const hi = curHourIdx();
   if (followNow && hi>=0 && hi!==selIdx){ selIdx = hi; dayIdx = dayOf(D.hours[hi].t); render(true); }
   else { placeNow(); if (followNow) renderTiles(); renderBest(); }
+  if (Date.now()-lastLive > 5*M) loadLive();   // measurements change faster than the forecast
   markUpdated();
 }
 $("verBtn").onclick = () => { $("updated").textContent = "↻ …"; load(true); };
