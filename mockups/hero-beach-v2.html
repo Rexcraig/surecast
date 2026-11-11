@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SureCast beach hero v2</title>
+<style>
+:root{ --bg:#0b1724; --panel:#12233a; --text:#e8f1fa; --muted:#8aa4bf; --accent:#4fd1c5; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font:14px/1.3 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{max-width:420px;margin:0 auto;padding:10px 14px 40px}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:18px 2px 8px}
+.card{background:var(--panel);border-radius:18px;padding:8px;overflow:hidden}
+svg{display:block;width:100%;height:auto}
+svg text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+</style>
+</head>
+<body>
+<h2>Today 5 PM · rough</h2>
+<div class="card"><svg id="s1" viewBox="0 0 360 348"></svg></div>
+<h2>Sat 8 AM · calm</h2>
+<div class="card"><svg id="s2" viewBox="0 0 360 348"></svg></div>
+
+<script>
+const fishColor = s => s>=80?"#38d39f":s>=60?"#48bb78":s>=40?"#ecc94b":"#5a7591";
+const fishLabel = s => s>=80?"Great":s>=60?"Good":s>=40?"Fair":"Poor";
+const windColor = k => k<6?"#7fb8d8":k<10?"#5fd0a0":k<14?"#a8d05a":k<18?"#e8c24a":k<23?"#f0904a":k<30?"#f06a4a":"#e04a5a";
+const rad = d => d*Math.PI/180;
+const hfmt = h => { const ap=h<12?"a":"p", x=h%12||12; return x+ap; };
+
+function arrow(x0,y0,x1,y1,w,color){
+  const a=Math.atan2(y1-y0,x1-x0), hl=w*2.2, hw=w*1.6, bx=x1-hl*Math.cos(a), by=y1-hl*Math.sin(a), nx=-Math.sin(a), ny=Math.cos(a);
+  return `<path d="M${x0+nx*w/2} ${y0+ny*w/2} L${bx+nx*w/2} ${by+ny*w/2} L${bx+nx*hw} ${by+ny*hw} L${x1} ${y1} L${bx-nx*hw} ${by-ny*hw} L${bx-nx*w/2} ${by-ny*w/2} L${x0-nx*w/2} ${y0-ny*w/2} Z" fill="${color}"/>`;
+}
+
+function beach(id, d){
+  const W=360, H=262, PX_FT=4.2;             // shared scale: person (6 ft) and waves use the same px/ft
+  const shoreTop=158, slope=0.42, sandX0=86;  // sand: flat top then slope into the sea
+  const lowY=226, highY=176;                  // water level at low / high tide
+  const tFrac=(d.tide-d.low.v)/(d.high.v-d.low.v), waterY=lowY-(lowY-highY)*tFrac;
+  const edgeX = y => sandX0 + (y-shoreTop)/slope;   // where water of level y meets the sand
+  const wx=edgeX(waterY);
+  let s="";
+
+  // ---- sky by time of day
+  const dayF=(d.hour-d.sunrise)/(d.sunset-d.sunrise), isDay=dayF>0&&dayF<1, golden=isDay&&(dayF<.12||dayF>.85);
+  const sky = !isDay?["#0a1730","#1b2d4f"]: golden?["#3a5f8f","#f0a868"]:["#3d7cc0","#9fd0f0"];
+  s+=`<defs>
+    <linearGradient id="${id}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient>
+    <linearGradient id="${id}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f86c4"/><stop offset="1" stop-color="#0d3357"/></linearGradient>
+    <clipPath id="${id}clip"><rect width="${W}" height="${H}" rx="12"/></clipPath></defs>`;
+  s+=`<g clip-path="url(#${id}clip)"><rect width="${W}" height="${H}" fill="url(#${id}sky)"/>`;
+  // sun / moon: looking north, so the sun rises over the ocean (right) and sets over land (left)
+  if (isDay){ const x=W-20-(W-40)*dayF, y=150-118*Math.sin(Math.PI*dayF);
+    s+=`<circle cx="${x}" cy="${y}" r="${golden?16:13}" fill="${golden?"#ffcf70":"#fff1b0"}" opacity=".95"/>`; }
+  else s+=`<circle cx="70" cy="60" r="11" fill="#f4f1e6"/><circle cx="75" cy="56" r="10" fill="${sky[0]}"/>`;
+
+  // ---- wind streaks: count & length grow with speed; direction = onshore (right→left) or offshore (left→right)
+  const cross=Math.cos(rad(d.windFrom-90)), onshore=cross>0.15, offshore=cross<-0.15;
+  const n=Math.max(1,Math.min(5,Math.round(d.wind/6))), len=40+d.wind*3.2;
+  for(let i=0;i<n;i++){ const y=78+i*15, xr=W-30-(i%2)*26, xl=xr-len;
+    s+= offshore? arrow(xl-150,y,xr-150,y,3+d.wind/9,windColor(d.wind)) : arrow(xr,y,xl,y,3+d.wind/9,windColor(d.wind)); }
+
+  // ---- sea with swells; height on the same scale as the person, spacing from the period
+  const hpx=Math.min(78,d.wave*PX_FT), lam=Math.max(46,d.period*10);
+  let top=`M${wx} ${waterY}`;
+  for(let x=wx;x<=W+2;x+=3){ const k=(x-wx)/lam, shoal=Math.min(1,(x-wx)/40);
+    top+=` L${x.toFixed(1)} ${(waterY - hpx*shoal*Math.pow(0.5+0.5*Math.cos(2*Math.PI*(k-0.75)),1.8)).toFixed(1)}`; }
+  s+=`<path d="${top} L${W+2} ${H} L${wx} ${H} Z" fill="url(#${id}sea)"/><path d="${top}" fill="none" stroke="#d8f0ff" stroke-width="2"/>`;
+  // whitecaps when it's windy
+  if (d.wind>=15) for(let k=0;k<4;k++){ const x=wx+lam*(0.75+k); if(x<W-6) s+=`<path d="M${x-8} ${waterY-hpx*0.8+3} q8 -7 16 0" stroke="#fff" stroke-width="2.5" fill="none" opacity=".9"/>`; }
+  // shore foam
+  s+=`<path d="M${wx-4} ${waterY} q10 -5 22 0 t22 0" stroke="#fff" stroke-width="2.5" fill="none" opacity=".85"/>`;
+
+  // ---- sand, with high/low tide flags where the water reaches
+  s+=`<path d="M-2 ${shoreTop} L${sandX0} ${shoreTop} L${edgeX(H)} ${H} L-2 ${H} Z" fill="#dcc89a"/>`;
+  s+=`<path d="M${edgeX(highY)} ${highY} L${edgeX(H)} ${H}" stroke="#b9a271" stroke-width="7" opacity=".45"/>`; // wet sand band
+  [[highY,"H",d.high.t,"#7fd3ff"],[lowY,"L",d.low.t,"#cfd8e3"]].forEach(([y,l,t,c])=>{ const x=edgeX(y)-2;
+    s+=`<line x1="${x}" y1="${y}" x2="${x}" y2="${y-22}" stroke="#5b4a2a" stroke-width="1.5"/><path d="M${x} ${y-22} l-15 4 l15 4 Z" fill="${c}"/>
+        <text x="${x-6}" y="${y+14}" text-anchor="end" font-size="9.5" font-weight="700" fill="#5b4a2a">${l} ${t}</text>`; });
+
+  // ---- the surfcaster: 6 ft tall on the shared scale, rod over the water
+  const px=edgeX(highY)-38, py=shoreTop+Math.max(0,(px-sandX0))*slope, hh=6*PX_FT;
+  s+=`<g stroke="#1d2a38" stroke-width="2.4" stroke-linecap="round" fill="none">
+      <path d="M${px-3} ${py} L${px} ${py-hh*0.45} L${px+3} ${py}"/><path d="M${px} ${py-hh*0.45} L${px} ${py-hh*0.82}"/>
+      <path d="M${px} ${py-hh*0.72} L${px+8} ${py-hh*0.62}"/></g>
+      <circle cx="${px}" cy="${py-hh*0.9}" r="3.4" fill="#1d2a38"/>
+      <path d="M${px+7} ${py-hh*0.6} L${px+42} ${py-hh*1.55}" stroke="#1d2a38" stroke-width="1.6"/>
+      <path d="M${px+42} ${py-hh*1.55} Q${px+140} ${py-hh*1.7} ${Math.max(px+150, wx+60)} ${waterY+4}" stroke="#1d2a38" stroke-width=".8" fill="none" opacity=".7"/>`;
+
+  // ---- labels
+  s+=`<text x="12" y="28" font-size="22" font-weight="800" fill="#fff">${d.wind}<tspan font-size="12" font-weight="600"> kts</tspan></text>
+      <text x="12" y="44" font-size="11" fill="#fff" opacity=".9">${d.windName} · gust ${d.gust} · ${onshore?"onshore":offshore?"offshore":"along shore"}</text>`;
+  // mini compass: exact direction (top-down, shoreline drawn)
+  { const cx=W-30, cy=30, r=20, a=rad(d.windFrom), x0=cx+r*Math.sin(a), y0=cy-r*Math.cos(a), x1=cx-r*0.8*Math.sin(a), y1=cy+r*0.8*Math.cos(a);
+    s+=`<circle cx="${cx}" cy="${cy}" r="${r+3}" fill="rgba(11,23,36,.55)"/><line x1="${cx-3}" y1="${cy-r}" x2="${cx-3}" y2="${cy+r}" stroke="#dcc89a" stroke-width="2"/>
+        <text x="${cx}" y="${cy-r+9}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#ff8f8f">N</text>${arrow(x0,y0,x1,y1,4,windColor(d.wind))}`; }
+  const lx=Math.min(W-12, wx+lam*0.75+60);
+  s+=`<text x="${W-12}" y="${waterY-hpx*0.8-12}" text-anchor="end" font-size="15" font-weight="800" fill="#fff">${d.wave} ft<tspan font-size="10.5" font-weight="500"> waves · ${d.period}s</tspan></text>`;
+  s+=`<text x="12" y="${H-28}" font-size="10" font-weight="700" letter-spacing=".06em" fill="#7a6538">TIDE</text>
+      <text x="12" y="${H-11}" font-size="16" font-weight="800" fill="#3d321c">${d.tide}′ ${d.rising?"↑ rising":"↓ falling"}</text>`;
+  s+=`</g>`;
+
+  // ---- fishing strip: every hour of the day, now marked, best starred
+  const sy=H+20, bw=10.5, gx=94, maxH=46, best=d.scores.indexOf(Math.max(...d.scores)), worst=d.scores.indexOf(Math.min(...d.scores)), now=d.hour;
+  s+=`<text x="12" y="${sy+26}" font-size="30" font-weight="800" fill="${fishColor(d.scores[now])}">${d.scores[now]}</text>
+      <text x="12" y="${sy+44}" font-size="11" font-weight="700" fill="${fishColor(d.scores[now])}">${fishLabel(d.scores[now]).toUpperCase()} NOW</text>
+      <text x="12" y="${sy+59}" font-size="10" fill="#8aa4bf">fishing score</text>`;
+  d.scores.forEach((v,h)=>{ const x=gx+h*bw, bh=Math.max(2,v/100*maxH);
+    s+=`<rect x="${x}" y="${sy+maxH-bh}" width="${bw-2.5}" height="${bh}" rx="2" fill="${fishColor(v)}" opacity="${h===now?1:.75}"/>`; });
+  const nx=gx+now*bw+(bw-2.5)/2, bx=gx+best*bw+(bw-2.5)/2;
+  s+=`<rect x="${gx+now*bw-2}" y="${sy-4}" width="${bw+1.5}" height="${maxH+8}" rx="3" fill="none" stroke="#fff" stroke-width="1.5"/>`;
+  const sty = best===now ? sy-8 : sy+maxH-d.scores[best]/100*maxH-4;
+  s+=`<text x="${bx}" y="${sty}" text-anchor="middle" font-size="10" fill="#ffe08a">★</text>`;
+  s+=`<text x="${best>=now? bx+(best===now?9:7) : bx-7}" y="${sty}" text-anchor="${best>=now?"start":"end"}" font-size="9.5" font-weight="700" fill="#ffe08a">best ${hfmt(best)}</text>`;
+  s+=`<text x="${gx}" y="${sy+maxH+13}" font-size="9" fill="#8aa4bf">12a</text><text x="${gx+12*bw}" y="${sy+maxH+13}" text-anchor="middle" font-size="9" fill="#8aa4bf">12p</text>
+      <text x="${gx+24*bw-2}" y="${sy+maxH+13}" text-anchor="end" font-size="9" fill="#8aa4bf">12a</text>
+      <text x="${nx}" y="${sy+maxH+13}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">now</text>`;
+  document.getElementById(id).innerHTML=s;
+}
+
+beach("s1", { hour:17, sunrise:7.43, sunset:18.67, wind:24, gust:28, windFrom:22.5, windName:"NNE",
+  wave:13.5, period:9, tide:2.4, low:{v:0.5,t:"3:35p"}, high:{v:3.3,t:"10:01p"}, rising:true,
+  scores:[14,10,8,12,22,30,34,28,20,16,14,18,26,38,44,36,40,48,52,72,58,40,30,22] });
+beach("s2", { hour:8, sunrise:7.45, sunset:18.62, wind:6, gust:9, windFrom:270, windName:"W",
+  wave:2.1, period:7, tide:1.1, low:{v:0.4,t:"4:50a"}, high:{v:3.0,t:"11:12a"}, rising:true,
+  scores:[30,26,22,24,30,40,58,74,82,70,52,44,34,28,20,18,24,36,58,64,46,34,28,26] });
+</script>
+</body>
+</html>

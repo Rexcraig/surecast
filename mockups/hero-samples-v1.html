@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SureCast hero samples v1</title>
+<style>
+:root{
+  --bg:#0b1724; --panel:#12233a; --panel2:#18304d; --line:#23405f;
+  --text:#e8f1fa; --muted:#8aa4bf; --accent:#4fd1c5;
+  --good:#48bb78; --great:#38d39f; --fair:#ecc94b; --poor:#5a7591;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font:14px/1.3 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{max-width:420px;margin:0 auto;padding:10px 14px 40px}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:18px 2px 8px}
+.card{background:var(--panel);border-radius:18px;padding:10px;overflow:hidden}
+svg{display:block;width:100%;height:auto}
+svg text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+.cap{color:var(--muted);font-size:12px;margin:8px 4px 0}
+</style>
+</head>
+<body>
+<!-- Sample data: Delray Beach, today 5 PM -->
+<h2>A · Coast compass</h2>
+<div class="card"><svg id="a" viewBox="0 0 360 300"></svg></div>
+<p class="cap">Map-style, like Windy: arrows travel the way wind and waves move. Center ring = fishing now, filled between today's worst and best hour.</p>
+
+<h2>B · Beach scene</h2>
+<div class="card"><svg id="b" viewBox="0 0 360 300"></svg></div>
+<p class="cap">Side view of your beach: water height = tide, wave size = wave height, streaks = wind.</p>
+
+<h2>C · Gauge cluster</h2>
+<div class="card"><svg id="c" viewBox="0 0 360 330"></svg></div>
+<p class="cap">Four dials, like a car dashboard. The fishing dial runs from today's worst to today's best hour.</p>
+
+<script>
+const D = {
+  time:"5 PM", wind:24, gust:28, windFrom:22.5, windName:"NNE",
+  wave:13.5, period:9, waveFrom:45, waveName:"NE",
+  tide:2.4, low:{v:0.5,t:"3:35p"}, high:{v:3.3,t:"10:01p"}, rising:true, tideFrac:0.33, // fraction of the way from last low to next high (time)
+  fish:48, worst:{v:8,t:"2a"}, best:{v:72,t:"7p"},
+  shoreBearing:90 // beach faces east
+};
+const fishColor = s => s>=80?"#38d39f":s>=60?"#48bb78":s>=40?"#ecc94b":"#5a7591";
+const fishLabel = s => s>=80?"Great":s>=60?"Good":s>=40?"Fair":"Poor";
+const windColor = k => k<6?"#2f7fa3":k<10?"#2e9e6b":k<14?"#8fbf3a":k<18?"#d9b23a":k<23?"#e07b39":k<30?"#e0623a":"#c0392b";
+const rad = d => d*Math.PI/180;
+const pt = (cx,cy,r,bearing) => [cx + r*Math.sin(rad(bearing)), cy - r*Math.cos(rad(bearing))];
+const arc = (cx,cy,r,a0,a1) => { const [x0,y0]=pt(cx,cy,r,a0),[x1,y1]=pt(cx,cy,r,a1); return `M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`; };
+// arrow travelling toward bearing (from -> to), drawn as a fat chevron-headed shaft
+function arrow(x0,y0,x1,y1,w,color){
+  const a=Math.atan2(y1-y0,x1-x0), hl=w*1.9, hw=w*1.5;
+  const bx=x1-hl*Math.cos(a), by=y1-hl*Math.sin(a), nx=-Math.sin(a), ny=Math.cos(a);
+  return `<path d="M${x0+nx*w/2} ${y0+ny*w/2} L${bx+nx*w/2} ${by+ny*w/2} L${bx+nx*hw} ${by+ny*hw} L${x1} ${y1} L${bx-nx*hw} ${by-ny*hw} L${bx-nx*w/2} ${by-ny*w/2} L${x0-nx*w/2} ${y0-ny*w/2} Z" fill="${color}" stroke="rgba(0,0,0,.35)" stroke-width="1"/>`;
+}
+const fishFrac = (D.fish-D.worst.v)/(D.best.v-D.worst.v);
+
+/* ---------- A: coast compass ---------- */
+(() => {
+  const cx=138, cy=158, R=122; let s="";
+  s+=`<defs><linearGradient id="seaA" x1="0" x2="1"><stop offset="0" stop-color="#1d4e7a"/><stop offset="1" stop-color="#0f2f4f"/></linearGradient>
+      <clipPath id="clipA"><circle cx="${cx}" cy="${cy}" r="${R}"/></clipPath></defs>`;
+  // land / sea split along the shoreline (beach faces east)
+  s+=`<g clip-path="url(#clipA)"><rect x="0" y="0" width="360" height="360" fill="url(#seaA)"/>
+      <path d="M0 0 H122 C114 90 130 200 114 360 H0 Z" fill="#2a3a4a"/>
+      <path d="M122 0 C114 90 130 200 114 360" fill="none" stroke="#d9c79a" stroke-width="5" opacity=".8"/></g>`;
+  s+=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#3b5a7a" stroke-width="1.5"/>`;
+  [["N",0],["E",90],["S",180],["W",270]].forEach(([l,b])=>{ const [x,y]=pt(cx,cy,R-14,b); s+=`<text x="${x}" y="${y+5}" text-anchor="middle" font-size="13" font-weight="700" fill="${l==="N"?"#ff7b7b":"#8aa4bf"}">${l}</text>`; });
+  // waves: travel from waveFrom toward shore
+  { const [x0,y0]=pt(cx,cy,R-8,D.waveFrom), [x1,y1]=pt(cx,cy,26,D.waveFrom); s+=arrow(x0,y0,x1,y1,22,"#5fb3f0");
+  }
+  // wind
+  { const [x0,y0]=pt(cx,cy,R+6,D.windFrom), [x1,y1]=pt(cx,cy,24,D.windFrom); s+=arrow(x0,y0,x1,y1,14+D.wind/4,windColor(D.wind));
+  }
+  // legend (top-right column)
+  s+=`<rect x="276" y="14" width="10" height="10" rx="2" fill="${windColor(D.wind)}"/><text x="292" y="23" font-size="10" font-weight="700" fill="#8aa4bf" letter-spacing=".06em">WIND</text>
+      <text x="276" y="46" font-size="22" font-weight="800" fill="#e8f1fa">${D.wind}<tspan font-size="11" fill="#8aa4bf"> kts</tspan></text>
+      <text x="276" y="61" font-size="10.5" fill="#8aa4bf">${D.windName} · gust ${D.gust}</text>
+      <rect x="276" y="80" width="10" height="10" rx="2" fill="#5fb3f0"/><text x="292" y="89" font-size="10" font-weight="700" fill="#8aa4bf" letter-spacing=".06em">WAVES</text>
+      <text x="276" y="112" font-size="22" font-weight="800" fill="#e8f1fa">${D.wave}<tspan font-size="11" fill="#8aa4bf"> ft</tspan></text>
+      <text x="276" y="127" font-size="10.5" fill="#8aa4bf">${D.period}s · from ${D.waveName}</text>`;
+  // center: fishing score medallion (ring = where now sits between today's worst and best)
+  s+=`<circle cx="${cx}" cy="${cy}" r="40" fill="#0b1724" stroke="#23405f" stroke-width="2"/>`;
+  s+=`<path d="${arc(cx,cy,34,-135,135)}" fill="none" stroke="#23405f" stroke-width="6" stroke-linecap="round"/>`;
+  s+=`<path d="${arc(cx,cy,34,-135,-135+270*fishFrac)}" fill="none" stroke="${fishColor(D.fish)}" stroke-width="6" stroke-linecap="round"/>`;
+  s+=`<text x="${cx}" y="${cy+6}" text-anchor="middle" font-size="24" font-weight="800" fill="${fishColor(D.fish)}">${D.fish}</text>`;
+  s+=`<text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${fishColor(D.fish)}">${fishLabel(D.fish)}</text>`;
+  s+=`<rect x="${cx-40}" y="${cy+46}" width="80" height="17" rx="8.5" fill="#0b1724" stroke="#23405f"/><text x="${cx}" y="${cy+58}" text-anchor="middle" font-size="9.5" fill="#e8f1fa">★ best ${D.best.t} (${D.best.v})</text>`;
+  // tide tube bottom-right
+  const tx=278, ty=170, th=96, lv=(D.tide-D.low.v)/(D.high.v-D.low.v);
+  s+=`<rect x="${tx}" y="${ty}" width="26" height="${th}" rx="8" fill="#0b1724" stroke="#3b5a7a"/>
+      <rect x="${tx+3}" y="${ty+3+(th-6)*(1-lv)}" width="20" height="${(th-6)*lv}" rx="5" fill="#3b82c4"/>
+      <text x="276" y="${ty-22}" font-size="10" font-weight="700" fill="#8aa4bf" letter-spacing=".06em">TIDE</text>
+      <text x="276" y="${ty-6}" font-size="15" font-weight="800" fill="#e8f1fa">${D.tide}′ ↑</text>
+      <text x="${tx+32}" y="${ty+11}" font-size="9.5" fill="#7fd3ff">H</text><text x="${tx+32}" y="${ty+22}" font-size="9" fill="#8aa4bf">${D.high.t}</text>
+      <text x="${tx+32}" y="${ty+th-12}" font-size="9.5" fill="#9fb3c8">L</text><text x="${tx+32}" y="${ty+th-1}" font-size="9" fill="#8aa4bf">${D.low.t}</text>`;
+  document.getElementById("a").innerHTML=s;
+})();
+
+/* ---------- B: beach scene (looking north: land left, ocean right) ---------- */
+(() => {
+  let s=""; const W=360, lowY=190, highY=130, waterY=lowY-(lowY-highY)*((D.tide-D.low.v)/(D.high.v-D.low.v));
+  s+=`<defs><linearGradient id="skyB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b4a73"/><stop offset="1" stop-color="#e8a36b" stop-opacity=".55"/></linearGradient>
+      <linearGradient id="seaB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f7fb8"/><stop offset="1" stop-color="#0f2f4f"/></linearGradient></defs>`;
+  s+=`<rect width="${W}" height="230" rx="12" fill="url(#skyB)"/>`;
+  // sun low in the west (late afternoon)
+  s+=`<circle cx="40" cy="96" r="13" fill="#ffd27a"/><text x="40" y="126" text-anchor="middle" font-size="9" fill="#fff3d6">sunset 6:40p</text>`;
+  // sea with waves; amplitude scales with wave height
+  const amp=Math.min(22,4+D.wave*1.2); let wave=`M110 ${waterY}`;
+  for(let x=110;x<=W;x+=8){ wave+=` L${x} ${(waterY - amp*Math.max(0,Math.sin((x-110)/34))).toFixed(1)}`; }
+  s+=`<path d="${wave} L${W} 230 L110 230 Z" fill="url(#seaB)"/>`;
+  s+=`<path d="${wave}" fill="none" stroke="#bfe6ff" stroke-width="2.5"/>`;
+  // beach slope
+  s+=`<path d="M0 150 L70 150 L230 230 L0 230 Z" fill="#d9c79a"/><path d="M0 150 L70 150" stroke="#b9a674" stroke-width="2"/>`;
+  // tide marks
+  [[highY,`H ${D.high.t}`],[lowY,`L ${D.low.t}`]].forEach(([y,l])=>{
+    s+=`<line x1="158" x2="${W-8}" y1="${y}" y2="${y}" stroke="#e8f1fa" stroke-dasharray="4 4" opacity=".5"/><text x="162" y="${y-4}" font-size="9.5" fill="#e8f1fa" opacity=".9">${l}</text>`; });
+  s+=`<text x="${W-12}" y="214" text-anchor="end" font-size="16" font-weight="800" fill="#fff">Tide ${D.tide}′ ↑</text>`;
+  s+=`<text x="${W-12}" y="${waterY-amp-8}" text-anchor="end" font-size="13" font-weight="800" fill="#fff">${D.wave} ft waves<tspan font-size="10.5" font-weight="500" fill="#cfe3f5"> · ${D.period}s</tspan></text>`;
+  // wind streaks: blowing from NNE = mostly along-shore, slightly onshore → drawn right-to-left
+  for(let i=0;i<3;i++){ const y=34+i*20, x1=346-i*12, x0=x1-120;
+    s+=arrow(x1,y,x0,y+10,4+D.wind/10,windColor(D.wind)); }
+  s+=`<text x="14" y="28" font-size="17" font-weight="800" fill="#fff">${D.wind} kts ${D.windName}</text>`;
+  s+=`<text x="14" y="43" font-size="10.5" fill="#fff3d6">gust ${D.gust} · onshore</text>`;
+  // fishing meter: today's range
+  const mx=14, mw=W-28, my=262, frac=x=>mx+mw*x/100;
+  s+=`<text x="${mx}" y="248" font-size="11" font-weight="700" fill="#8aa4bf" letter-spacing=".06em">FISHING NOW</text>`;
+  s+=`<text x="${W-14}" y="248" text-anchor="end" font-size="13" font-weight="800" fill="${fishColor(D.fish)}">${D.fish} ${fishLabel(D.fish)}</text>`;
+  s+=`<rect x="${mx}" y="${my}" width="${mw}" height="10" rx="5" fill="#0b1724"/>`;
+  s+=`<rect x="${frac(D.worst.v)}" y="${my}" width="${frac(D.best.v)-frac(D.worst.v)}" height="10" rx="5" fill="#23405f"/>`;
+  s+=`<circle cx="${frac(D.fish)}" cy="${my+5}" r="8" fill="${fishColor(D.fish)}" stroke="#0b1724" stroke-width="2"/>`;
+  s+=`<text x="${frac(D.worst.v)}" y="${my+26}" text-anchor="middle" font-size="9.5" fill="#8aa4bf">worst ${D.worst.t}</text>`;
+  s+=`<text x="${frac(D.best.v)}" y="${my+26}" text-anchor="middle" font-size="9.5" fill="#e8f1fa">★ best ${D.best.t}</text>`;
+  document.getElementById("b").innerHTML=s;
+})();
+
+/* ---------- C: gauge cluster ---------- */
+(() => {
+  let s=""; const cell=(i)=>[90+(i%2)*180, 82+Math.floor(i/2)*160], r=62;
+  const ring=(cx,cy)=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0b1724" stroke="#23405f" stroke-width="2"/>`;
+  const title=(cx,cy,t)=>`<text x="${cx}" y="${cy+r+16}" text-anchor="middle" font-size="10.5" font-weight="700" letter-spacing=".08em" fill="#8aa4bf">${t}</text>`;
+  // wind
+  { const [cx,cy]=cell(0); s+=ring(cx,cy)+title(cx,cy,"WIND");
+    ["N","E","S","W"].forEach((l,k)=>{ const [x,y]=pt(cx,cy,r-11,k*90); s+=`<text x="${x}" y="${y+4}" text-anchor="middle" font-size="10" font-weight="700" fill="${l==="N"?"#ff7b7b":"#5f7a95"}">${l}</text>`; });
+    const [x0,y0]=pt(cx,cy,r-6,D.windFrom), [x1,y1]=pt(cx,cy,r-6,D.windFrom+180); s+=arrow(x0,y0,x1,y1,8,windColor(D.wind));
+    s+=`<circle cx="${cx}" cy="${cy}" r="21" fill="#0b1724"/><text x="${cx}" y="${cy+5}" text-anchor="middle" font-size="20" font-weight="800" fill="#e8f1fa">${D.wind}</text><text x="${cx}" y="${cy+17}" text-anchor="middle" font-size="8.5" fill="#8aa4bf">kts · g${D.gust}</text>`; }
+  // waves: height on a 0–15 ft arc + direction mini arrow
+  { const [cx,cy]=cell(1); s+=ring(cx,cy)+title(cx,cy,"WAVES");
+    s+=`<path d="${arc(cx,cy,r-10,-120,120)}" fill="none" stroke="#23405f" stroke-width="8" stroke-linecap="round"/>`;
+    s+=`<path d="${arc(cx,cy,r-10,-120,-120+240*Math.min(1,D.wave/15))}" fill="none" stroke="#5fb3f0" stroke-width="8" stroke-linecap="round"/>`;
+    s+=`<text x="${cx}" y="${cy+6}" text-anchor="middle" font-size="24" font-weight="800" fill="#e8f1fa">${D.wave}</text><text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="9.5" fill="#8aa4bf">ft · ${D.period}s · ${D.waveName}</text>`; }
+  // tide clock: top = high, bottom = low; hand sweeps clockwise low→high on the left side
+  { const [cx,cy]=cell(2); s+=ring(cx,cy)+title(cx,cy,"TIDE");
+    s+=`<path d="${arc(cx,cy,r-10,180,360)}" fill="none" stroke="#3b82c4" stroke-width="8" opacity=".35"/>`;
+    s+=`<text x="${cx}" y="${cy-r+24}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#7fd3ff">H ${D.high.t}</text><text x="${cx}" y="${cy+r-16}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#9fb3c8">L ${D.low.t}</text>`;
+    const b=180+180*D.tideFrac, [hx,hy]=pt(cx,cy,r-14,b); s+=`<line x1="${cx}" y1="${cy}" x2="${hx}" y2="${hy}" stroke="#e8f1fa" stroke-width="3.5" stroke-linecap="round"/><circle cx="${hx}" cy="${hy}" r="5" fill="#7fd3ff"/>`;
+    s+=`<circle cx="${cx}" cy="${cy}" r="4" fill="#e8f1fa"/><text x="${cx+20}" y="${cy+5}" font-size="17" font-weight="800" fill="#e8f1fa">${D.tide}′</text><text x="${cx+20}" y="${cy+18}" font-size="9" fill="#8aa4bf">rising</text>`; }
+  // fishing: semicircle from today's worst (left) to best (right)
+  { const [cx,cy]=cell(3); s+=ring(cx,cy)+title(cx,cy,"FISHING");
+    s+=`<path d="${arc(cx,cy,r-12,-100,100)}" fill="none" stroke="#23405f" stroke-width="10" stroke-linecap="round"/>`;
+    s+=`<path d="${arc(cx,cy,r-12,-100,-100+200*fishFrac)}" fill="none" stroke="${fishColor(D.fish)}" stroke-width="10" stroke-linecap="round"/>`;
+    const [nx,ny]=pt(cx,cy,r-24,-100+200*fishFrac); s+=`<line x1="${cx}" y1="${cy+6}" x2="${nx}" y2="${ny}" stroke="#e8f1fa" stroke-width="3" stroke-linecap="round"/><circle cx="${cx}" cy="${cy+6}" r="4" fill="#e8f1fa"/>`;
+    s+=`<text x="${cx}" y="${cy+30}" text-anchor="middle" font-size="18" font-weight="800" fill="${fishColor(D.fish)}">${D.fish} ${fishLabel(D.fish)}</text>`;
+    const [lx,ly]=pt(cx,cy,r+2,-112),[rx,ry]=pt(cx,cy,r+2,112);
+    s+=`<text x="${lx-2}" y="${ly+16}" text-anchor="middle" font-size="8.5" fill="#8aa4bf">worst</text><text x="${rx+2}" y="${ry+16}" text-anchor="middle" font-size="8.5" fill="#e8f1fa">best ${D.best.t}</text>`; }
+  document.getElementById("c").innerHTML=s;
+})();
+</script>
+</body>
+</html>

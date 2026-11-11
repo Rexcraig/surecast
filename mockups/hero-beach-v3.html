@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SureCast beach hero v3</title>
+<style>
+:root{ --bg:#0b1724; --panel:#12233a; --text:#e8f1fa; --muted:#8aa4bf; --accent:#4fd1c5; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font:14px/1.3 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{max-width:420px;margin:0 auto;padding:10px 14px 40px}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:18px 2px 8px}
+.card{background:var(--panel);border-radius:18px;padding:8px;overflow:hidden}
+svg{display:block;width:100%;height:auto}
+svg .scene text[fill="#fff"]{paint-order:stroke;stroke:rgba(8,16,28,.3);stroke-width:2.4px;stroke-linejoin:round}
+svg text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+</style>
+</head>
+<body>
+<h2>Today 5 PM · rough, rain</h2>
+<div class="card"><svg id="s1" viewBox="0 0 360 348"></svg></div>
+<h2>Sat 7:50 AM · calm sunrise</h2>
+<div class="card"><svg id="s2" viewBox="0 0 360 348"></svg></div>
+<h2>Tonight 2 AM · dead</h2>
+<div class="card"><svg id="s3" viewBox="0 0 360 348"></svg></div>
+
+<script>
+const fishColor = s => s>=80?"#38d39f":s>=60?"#48bb78":s>=40?"#ecc94b":"#5a7591";
+const fishLabel = s => s>=80?"Great":s>=60?"Good":s>=40?"Fair":"Poor";
+const fishCount = s => s>=80?5:s>=70?4:s>=60?3:s>=40?2:s>=20?1:0;   // absolute score, not ranked within the day
+const windColor = k => k<6?"#7fb8d8":k<10?"#5fd0a0":k<14?"#a8d05a":k<18?"#e8c24a":k<23?"#f0904a":k<30?"#f06a4a":"#e04a5a";
+const rad = d => d*Math.PI/180, frac = x => x-Math.floor(x), lerp=(a,b,f)=>a+(b-a)*f;
+const hfmt = h => { const ap=h<12?"a":"p", x=h%12||12; return x+ap; };
+const mix = (a,b,f) => { const p=c=>[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)); const x=p(a),y=p(b); return "#"+x.map((v,i)=>Math.round(v+(y[i]-v)*f).toString(16).padStart(2,"0")).join(""); };
+function arrow(x0,y0,x1,y1,w,color,op=1){
+  const a=Math.atan2(y1-y0,x1-x0), hl=w*2.2, hw=w*1.6, bx=x1-hl*Math.cos(a), by=y1-hl*Math.sin(a), nx=-Math.sin(a), ny=Math.cos(a);
+  return `<path opacity="${op}" d="M${x0+nx*w/2} ${y0+ny*w/2} L${bx+nx*w/2} ${by+ny*w/2} L${bx+nx*hw} ${by+ny*hw} L${x1} ${y1} L${bx-nx*hw} ${by-ny*hw} L${bx-nx*w/2} ${by-ny*w/2} L${x0-nx*w/2} ${y0-ny*w/2} Z" fill="${color}"/>`;
+}
+// surfcaster silhouette, designed 60 units tall (6 ft) facing the sea, feet at (0,0)
+function surfcaster(lineTo){
+  const C="#152131";
+  return `<g fill="${C}" stroke="none">
+    <path d="M-1 -1 L-9 0 L-8 -3 L-3 -4 Z"/><path d="M12 -1 L4 0 L5 -3 L10 -4 Z"/>
+    <path d="M-7 -2 L-3 -2 L1 -27 L-6 -28 Z"/><path d="M6 -2 L10 -2 L4 -28 L-2 -27 Z"/>
+    <path d="M-7 -26 Q-8 -40 -4 -47 L5 -48 Q9 -40 7 -26 Z"/>
+    <circle cx="2" cy="-53" r="5.2"/>
+    <ellipse cx="2" cy="-56.5" rx="9" ry="2"/><path d="M-3 -57 Q-3 -63 2 -63 Q7 -63 7 -57 Z"/>
+  </g>
+  <g stroke="${C}" stroke-width="3.6" stroke-linecap="round" fill="none">
+    <path d="M3 -45 Q9 -40 15 -42"/><path d="M-1 -44 Q6 -34 10 -33"/>
+  </g>
+  <path d="M6 -30 Q46 -82 74 -110" stroke="${C}" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <circle cx="10" cy="-35" r="2.6" fill="${C}"/>
+  <path d="M74 -110 Q${lineTo[0]*0.55} ${-118} ${lineTo[0]} ${lineTo[1]}" stroke="#152131" stroke-width=".9" fill="none" opacity=".75"/>
+  <g fill="${C}"><path d="M-30 0 L-26 -105" stroke="${C}" stroke-width="1.8"/><path d="M-31 0 L-28 -24 L-25 -24 L-27 0 Z"/>
+    <path d="M-24 -96 Q-2 -118 18 -126" stroke="${C}" stroke-width="1.4" fill="none"/>
+    <path d="M-20 0 L-19 -11 L-9 -11 L-8 0 Z"/><path d="M-21 -11 L-7 -11" stroke="${C}" stroke-width="1.5"/></g>`;
+}
+function fishShape(x,y,dir,sc,color,op){
+  return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${(dir*sc).toFixed(2)} ${sc})" opacity="${op}">
+    <path d="M7 0 Q2 -4.5 -5 -2.2 L-10 -5 L-8.5 0 L-10 5 L-5 2.2 Q2 4.5 7 0 Z" fill="${color}"/>
+    <circle cx="3.6" cy="-0.8" r="0.9" fill="#0b1724"/></g>`;
+}
+
+function beach(id, d){
+  const svg=document.getElementById(id);
+  const W=360, H=262, PX_FT=5, shoreTop=158, slope=0.58, sandX0=86, lowY=226, highY=176;
+  const tFrac=(d.tide-d.low.v)/(d.high.v-d.low.v), waterY=lowY-(lowY-highY)*tFrac;
+  const edgeX = y => sandX0 + (y-shoreTop)/slope, wx=edgeX(waterY);
+  const hpx=Math.min(78,d.wave*PX_FT), lam=Math.max(50,d.period*11);
+  const dayF=(d.hour-d.sunrise)/(d.sunset-d.sunrise), isDay=dayF>0&&dayF<1, golden=isDay&&(dayF<.12||dayF>.85);
+  const cover=d.cloud/100;
+  let sky = !isDay?["#081428","#172946"]: golden?["#3a5f8f","#f2a865"]:["#3d7cc0","#9fd0f0"];
+  sky = sky.map(c=>mix(c, isDay?"#6b7684":"#1c2430", cover*0.6));
+  const cross=Math.cos(rad(d.windFrom-90)), onshore=cross>0.15, offshore=cross<-0.15, wdir=offshore?1:-1;
+  const hr=Math.floor(d.hour), score=d.scores[hr], nFish=fishCount(score);
+
+  // ---------- static layers built once ----------
+  let defs=`<defs>
+    <linearGradient id="${id}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient>
+    <linearGradient id="${id}seaG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${isDay?"#2f8fc8":"#1d5a86"}"/><stop offset="1" stop-color="#0b2a48"/></linearGradient>
+    <clipPath id="${id}clip"><rect width="${W}" height="${H}" rx="12"/></clipPath>
+    <clipPath id="${id}water"><path id="${id}waterpath" d=""/></clipPath></defs>`;
+  let skyL=`<rect width="${W}" height="${H}" fill="url(#${id}sky)"/>`;
+  if (isDay){ const x=W-20-(W-40)*dayF, y=150-118*Math.sin(Math.PI*dayF);
+    skyL+=`<circle cx="${x}" cy="${y}" r="${golden?24:18}" fill="${golden?"#ffcf70":"#fff1b0"}" opacity=".18"/><circle cx="${x}" cy="${y}" r="${golden?15:12}" fill="${golden?"#ffcf70":"#fff1b0"}" opacity="${1-cover*0.6}"/>`; }
+  else { // moon with real phase (illum 0..1, waxing)
+    const r=11, ill=d.moon, cx=78, cy=64, k=1-2*ill;
+    skyL+=`<circle cx="${cx}" cy="${cy}" r="${r+9}" fill="#f4f1e6" opacity=".08"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="#2a3446"/>
+      <path d="M${cx} ${cy-r} A${r} ${r} 0 0 1 ${cx} ${cy+r} A${Math.abs(k)*r} ${r} 0 0 ${k>0?0:1} ${cx} ${cy-r} Z" fill="#f4f1e6"/>`;
+    for(let i=0;i<22;i++) skyL+=`<circle cx="${frac(i*0.618)*W}" cy="${frac(i*0.371)*120+6}" r="${i%4?0.7:1.1}" fill="#fff" opacity="${0.35+frac(i*0.29)*0.5}"/>`;
+  }
+  let sand=`<path d="M-2 ${shoreTop} L${sandX0} ${shoreTop} L${edgeX(H)} ${H} L-2 ${H} Z" fill="${isDay?"#dcc89a":"#7d7360"}"/>
+    <path d="M${edgeX(highY)} ${highY} L${edgeX(H)} ${H}" stroke="${isDay?"#b9a271":"#615843"}" stroke-width="8" opacity=".5"/>`;
+  [[highY,"H",d.high.t,"#7fd3ff"],[lowY,"L",d.low.t,"#cfd8e3"]].forEach(([y,l,t,c])=>{ const x=edgeX(y)-2;
+    sand+=`<line x1="${x}" y1="${y}" x2="${x}" y2="${y-22}" stroke="#4a3c22" stroke-width="1.5"/><path d="M${x} ${y-22} l-15 4 l15 4 Z" fill="${c}"/>
+      <text x="${x-6}" y="${y+14}" text-anchor="end" font-size="9.5" font-weight="700" fill="${isDay?"#5b4a2a":"#e8dcc0"}">${l} ${t}</text>`; });
+  const ax=edgeX(highY)-32, ay=shoreTop+Math.max(0,ax-sandX0)*slope, sc=6*PX_FT/60;
+  const lineEnd=[(wx+70-ax)/sc, (waterY+4-ay)/sc];
+  const night = !isDay;
+  sand+=`<g transform="translate(${ax} ${ay}) scale(${sc})">${night?`<path d="M6 -55 L70 -38 L70 -18 Z" fill="#fff6c8" opacity=".16"/><circle cx="6" cy="-55" r="5" fill="#fff6c8" opacity=".35"/>`:""}
+    <g ${night?'style="filter:drop-shadow(0 0 1.2px #9fb7d4) drop-shadow(0 0 1.2px #9fb7d4)"':""}>${surfcaster(lineEnd)}</g>
+    ${night?`<circle cx="6" cy="-55" r="1.8" fill="#fffbe0"/>`:""}</g>`;
+  let labels=`<text x="12" y="28" font-size="22" font-weight="800" fill="#fff">${d.wind}<tspan font-size="12" font-weight="600"> kts</tspan></text>
+    <text x="12" y="44" font-size="11" fill="#fff" opacity=".92">${d.windName} · gust ${d.gust} · ${onshore?"onshore":offshore?"offshore":"along shore"}</text>`;
+  { const cx=W-30, cy=30, r=20, a=rad(d.windFrom), x0=cx+r*Math.sin(a), y0=cy-r*Math.cos(a), x1=cx-r*0.8*Math.sin(a), y1=cy+r*0.8*Math.cos(a);
+    labels+=`<circle cx="${cx}" cy="${cy}" r="${r+3}" fill="rgba(11,23,36,.55)"/><line x1="${cx-3}" y1="${cy-r}" x2="${cx-3}" y2="${cy+r}" stroke="#dcc89a" stroke-width="2"/>
+      <text x="${cx}" y="${cy-r+9}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#ff8f8f">N</text>${arrow(x0,y0,x1,y1,4,windColor(d.wind))}`; }
+  labels+=`<text x="${W-12}" y="${waterY-hpx-14}" text-anchor="end" font-size="15" font-weight="800" fill="#fff">${d.wave} ft<tspan font-size="10.5" font-weight="500"> waves · ${d.period}s · ${d.sst}°F</tspan></text>`;
+  labels+=`<text x="12" y="${H-28}" font-size="10" font-weight="700" letter-spacing=".06em" fill="${isDay?"#7a6538":"#d9cba8"}">TIDE</text>
+    <text x="12" y="${H-11}" font-size="16" font-weight="800" fill="${isDay?"#3d321c":"#f4ead2"}">${d.tide.toFixed(1)}′ ${d.rising?"↑ rising":"↓ falling"}</text>`;
+  if (d.rain>0.1) labels+=`<text x="12" y="60" font-size="10.5" fill="#dbe6f2">🌧 rain ${d.rain} mm/h</text>`;
+
+  // fishing strip
+  const sy=H+20, bw=10.5, gx=94, maxH=46, best=d.scores.indexOf(Math.max(...d.scores)), now=hr;
+  let strip=`<text x="12" y="${sy+26}" font-size="30" font-weight="800" fill="${fishColor(score)}">${score}</text>
+    <text x="12" y="${sy+44}" font-size="11" font-weight="700" fill="${fishColor(score)}">${fishLabel(score).toUpperCase()} NOW</text>
+    <text x="12" y="${sy+59}" font-size="10" fill="#8aa4bf">fishing score</text>`;
+  d.scores.forEach((v,h)=>{ const x=gx+h*bw, bh=Math.max(2,v/100*maxH); strip+=`<rect x="${x}" y="${sy+maxH-bh}" width="${bw-2.5}" height="${bh}" rx="2" fill="${fishColor(v)}" opacity="${h===now?1:.75}"/>`; });
+  const nx=gx+now*bw+(bw-2.5)/2, bx=gx+best*bw+(bw-2.5)/2, sty = best===now ? sy-8 : sy+maxH-d.scores[best]/100*maxH-4;
+  strip+=`<rect x="${gx+now*bw-2}" y="${sy-4}" width="${bw+1.5}" height="${maxH+8}" rx="3" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <text x="${bx}" y="${sty}" text-anchor="middle" font-size="10" fill="#ffe08a">★</text>
+    <text x="${best>=now? bx+(best===now?9:7) : bx-7}" y="${sty}" text-anchor="${best>=now?"start":"end"}" font-size="9.5" font-weight="700" fill="#ffe08a">best ${hfmt(best)}</text>
+    ${now>2?`<text x="${gx}" y="${sy+maxH+13}" font-size="9" fill="#8aa4bf">12a</text>`:""}${Math.abs(now-12)>2?`<text x="${gx+12*bw}" y="${sy+maxH+13}" text-anchor="middle" font-size="9" fill="#8aa4bf">12p</text>`:""}
+    ${now<21?`<text x="${gx+24*bw-2}" y="${sy+maxH+13}" text-anchor="end" font-size="9" fill="#8aa4bf">12a</text>`:""}
+    <text x="${nx}" y="${sy+maxH+13}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">now</text>`;
+
+  svg.innerHTML = defs + `<g class="scene" clip-path="url(#${id}clip)">${skyL}<g id="${id}clouds"></g><g id="${id}wind"></g><g id="${id}sea"></g>`+
+    `<g clip-path="url(#${id}water)"><g id="${id}fish"></g></g><g id="${id}jump"></g>${sand}<g id="${id}rain"></g>${labels}</g>${strip}`;
+
+  // ---------- animated layers ----------
+  const G = k => document.getElementById(id+k), wp=document.getElementById(id+"waterpath");
+  const fishSpots=[...Array(5)].map((_,i)=>{ const fy=lerp(waterY+Math.max(14,hpx*0.25), H-16, frac(i*0.382+0.21));
+    const xmin=edgeX(fy)+22, fx=lerp(xmin, W-18, frac(i*0.618+0.13)); return {fx,fy,ph:i*1.7}; });
+  const clouds=[...Array(Math.round(cover*5))].map((_,i)=>({x:frac(i*0.47+0.1)*W, y:22+frac(i*0.33)*60, s:0.8+frac(i*0.71)*0.6}));
+  const cloudFill = isDay? mix("#ffffff","#8e98a5",cover) : "#2c3646";
+  function frame(ms){
+    const t=ms/1000, phase=t/d.period;
+    // sea surface: crests roll toward shore at the real wave period
+    let top=`M${wx} ${waterY}`;
+    for(let x=wx;x<=W+2;x+=3){ const k=(x-wx)/lam+phase, sh=Math.min(1,(x-wx)/40);
+      top+=` L${x.toFixed(1)} ${(waterY - hpx*sh*Math.pow(0.5+0.5*Math.cos(2*Math.PI*(k-0.75)),1.5)).toFixed(1)}`; }
+    const body=`${top} L${W+2} ${H} L${wx} ${H} Z`;
+    let sea=`<path d="${body}" fill="url(#${id}seaG)"/><path d="${top}" fill="none" stroke="#d8f0ff" stroke-width="2"/>`;
+    if (d.wind>=15) for(let n=-1;n<6;n++){ const x=wx+lam*(0.75+n-frac(phase)); if(x>wx+30&&x<W-6) sea+=`<path d="M${x-8} ${waterY-hpx*0.82+3} q8 -7 16 0" stroke="#fff" stroke-width="2.5" fill="none" opacity=".9"/>`; }
+    const sw=3*Math.sin(t*2*Math.PI/d.period); sea+=`<path d="M${wx-4+sw} ${waterY} q10 -5 22 0 t22 0" stroke="#fff" stroke-width="2.5" fill="none" opacity=".85"/>`;
+    G("sea").innerHTML=sea; wp.setAttribute("d", body);
+    // fish: count = score band; slow drift, turn to face the way they swim
+    let f=""; for(let i=0;i<nFish;i++){ const p=fishSpots[i], u=t/2.6+p.ph, dx=12*Math.sin(u), dir=Math.cos(u)>=0?1:-1;
+      f+=fishShape(p.fx+dx, p.fy+2*Math.sin(t/1.3+i*2), dir, 1.05, fishColor(score), .9); }
+    G("fish").innerHTML=f;
+    // a fish jumps every few seconds when it's Great
+    let j=""; if (score>=80){ const c=t%4.2; if (c<1.1){ const jx0=Math.min(W-60, wx+lam*1.6), q=c/1.1, x=jx0+q*34, y=waterY-hpx*0.2-Math.sin(Math.PI*q)*34, ang=-60+120*q;
+        j+=`<g transform="translate(${x} ${y}) rotate(${ang}) scale(1.2)"><path d="M7 0 Q2 -4.5 -5 -2.2 L-10 -5 L-8.5 0 L-10 5 L-5 2.2 Q2 4.5 7 0 Z" fill="${fishColor(score)}"/></g>`; }
+      else if (c<1.8){ const r=(c-1.1)*22; j+=`<ellipse cx="${Math.min(W-60, wx+lam*1.6)+34}" cy="${waterY-hpx*0.2+2}" rx="${r}" ry="${r*0.3}" fill="none" stroke="#fff" stroke-width="1.5" opacity="${1-(c-1.1)/0.7}"/>`; } }
+    G("jump").innerHTML=j;
+    // wind streaks flow in the wind's direction; more and faster when stronger
+    const n=Math.max(1,Math.min(5,Math.round(d.wind/6))), len=34+d.wind*2.6, spd=18+d.wind*4.5, span=W+len;
+    let w=""; for(let i=0;i<n;i++){ const y=80+i*14, pos=frac((t*spd+i*97)/span)*span, x0= wdir<0 ? W+len/2-pos : -len/2+pos, x1=x0+wdir*len;
+      const fade=Math.min(1, pos/60, (span-pos)/60); w+=arrow(x0,y,x1,y,3+d.wind/9,windColor(d.wind),Math.max(0,fade)); }
+    G("wind").innerHTML=w;
+    // clouds drift with the wind
+    let cl=""; clouds.forEach((c,i)=>{ const x=frac((c.x+wdir*t*(2+d.wind*0.3))/ (W+80))*(W+80)-40;
+      cl+=`<g transform="translate(${x} ${c.y}) scale(${c.s})" fill="${cloudFill}" opacity="${isDay?.92:.8}"><ellipse cx="0" cy="0" rx="22" ry="9"/><circle cx="-8" cy="-6" r="9"/><circle cx="6" cy="-9" r="11"/></g>`; });
+    G("clouds").innerHTML=cl;
+    // rain, slanted by the wind
+    let r=""; if (d.rain>0.1){ const drops=Math.min(70, Math.round(d.rain*80)), slant=wdir*d.wind*0.35;
+      for(let i=0;i<drops;i++){ const x=frac(i*0.618)*(W+40)-20, y=frac(t*1.4+i*0.137)*(H+20)-10; r+=`<line x1="${x}" y1="${y}" x2="${x+slant*0.4}" y2="${y+9}" stroke="#dbe9f7" stroke-width="1" opacity=".55"/>`; } }
+    G("rain").innerHTML=r;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+beach("s1", { hour:17, sunrise:7.43, sunset:18.67, wind:24, gust:28, windFrom:22.5, windName:"NNE",
+  wave:13.5, period:9, tide:2.4, low:{v:0.5,t:"3:35p"}, high:{v:3.3,t:"10:01p"}, rising:true, sst:83, cloud:75, rain:0.4, moon:0.96,
+  scores:[14,10,8,12,22,30,34,28,20,16,14,18,26,38,44,36,40,48,52,72,58,40,30,22] });
+beach("s2", { hour:7.83, sunrise:7.45, sunset:18.62, wind:6, gust:9, windFrom:270, windName:"W",
+  wave:2.1, period:7, tide:1.1, low:{v:0.4,t:"4:50a"}, high:{v:3.0,t:"11:12a"}, rising:true, sst:81, cloud:20, rain:0, moon:0.6,
+  scores:[30,26,22,24,30,40,58,82,80,70,52,44,34,28,20,18,24,36,58,64,46,34,28,26] });
+beach("s3", { hour:2, sunrise:7.45, sunset:18.62, wind:12, gust:16, windFrom:45, windName:"NE",
+  wave:6.2, period:8, tide:3.0, low:{v:0.6,t:"4:12a"}, high:{v:3.2,t:"10:40p"}, rising:false, sst:82, cloud:30, rain:0, moon:0.96,
+  scores:[14,10,8,12,22,30,34,28,20,16,14,18,26,38,44,36,40,48,52,72,58,40,30,22] });
+</script>
+</body>
+</html>
