@@ -140,7 +140,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <div class="legend">
   <span><i style="background:var(--great)"></i>Great</span><span><i style="background:var(--good)"></i>Good</span><span><i style="background:var(--fair)"></i>Fair</span><span><i style="background:var(--poor)"></i>Poor</span><span style="color:#ff8f8f">│ now</span>
 </div>
-<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: measured at the nearest station — WeatherSTEM / Florida Severe Weather Network at Atlantic Dunes Park, or NOAA CO-OPS · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement + dawn/dusk + pressure trend, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
+<div class="foot">Wind forecast: Open-Meteo, nearest ocean grid cell · Air temp: Open-Meteo, ocean and land cells blended by wind direction · Live wind: measured at the nearest station — WeatherSTEM / Florida Severe Weather Network at Atlantic Dunes Park, or NOAA CO-OPS · Waves &amp; water temp: Open-Meteo Marine · Tides: NOAA CO-OPS predictions · Fishing score: solunar (moon transit/rise/set) + tide movement (rated against the strongest swing of the two-week cycle) + dawn/dusk + pressure trend, minus wind, rough surf, heavy rain and thunderstorms · Alerts: National Weather Service. Forecasts only — not for navigation.</div>
 
 <div class="sheet" id="sheet">
   <div class="panel">
@@ -166,7 +166,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 <script>
 "use strict";
-const VERSION = "0.20";
+const VERSION = "0.21";
 // User's regular spots. All use Lake Worth Pier: the nearest ocean-side tide station (closer ones are on the ICWW).
 const PIER = {id:"8722670", name:"Lake Worth Pier (ocean)"};
 // Spots on the beach between Lake Worth Pier and Hillsboro Inlet get a blend of both ocean stations,
@@ -247,7 +247,8 @@ async function fetchAll(errs){
   const [wx, ma, ld] = await Promise.all([getJSON(wxU).catch(e=>{errs.push("wind: "+e.message);return null;}), getJSON(maU).catch(e=>{errs.push("waves: "+e.message);return null;}), getJSON(ldU).catch(()=>null)]);
   if (!wx) return null;
   const t0 = parseLocal(wx.hourly.time[0]);
-  const tdU = id => `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=surecast&station=${id}&begin_date=${ymd(t0)}&end_date=${ymd(t0+9*24*H)}&datum=MLLW&units=english&time_zone=lst_ldt&interval=hilo&format=json`;
+  // Tides from a week back to 9 days ahead: a full spring-neap cycle, so each swing can be rated against the strongest.
+  const tdU = id => `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=surecast&station=${id}&begin_date=${ymd(t0-7*24*H)}&end_date=${ymd(t0+9*24*H)}&datum=MLLW&units=english&time_zone=lst_ldt&interval=hilo&format=json`;
   const [td, sd] = await Promise.all([getJSON(tdU(st)).catch(e=>{errs.push("tides: "+e.message);return null;}), south ? getJSON(tdU(BLEND.south.id)).catch(()=>null) : null]);
   return {wx, ma, ld, td, sd, fetched:Date.now()};
 }
@@ -264,6 +265,9 @@ function build(raw, key){
       return b ? {t:Math.round(a.t+w*(b.t-a.t)), v:a.v+w*(b.v-a.v), type:a.type} : a; });
     tideName = `${BLEND.north.name} + ${BLEND.south.name} (ocean)`;
   }
+  // Every rise or fall: its swing (ft) and peak rate (ft/h, the middle of a cosine leg). The strongest in the cycle is the yardstick.
+  const legs = hilo.slice(1).map((b,i) => { const a = hilo[i], swing = Math.abs(b.v-a.v); return {swing, peak:swing*Math.PI/2/((b.t-a.t)/H)}; });
+  const refRate = Math.max(0, ...legs.map(l=>l.peak)), refSwing = Math.max(0, ...legs.map(l=>l.swing));
   // Which way the beach faces: preset spots say; anywhere else it's the bearing from the nearest land cell to the nearest sea cell.
   const apart = ld && (ld.latitude!==wx.latitude || ld.longitude!==wx.longitude);
   const shore = spot.shore!=null ? spot.shore : apart ? (Math.atan2((wx.longitude-ld.longitude)*Math.cos(spot.lat*Math.PI/180), wx.latitude-ld.latitude)*180/Math.PI+360)%360 : 90;
@@ -284,7 +288,7 @@ function build(raw, key){
       wdir: ma&&j!=null?ma.hourly.wave_direction[j]:null, sst: ma&&j!=null?ma.hourly.sea_surface_temperature[j]:null});
   }
   const days = wx.daily.time.map((s,i)=>({t:parseLocal(s+"T00:00"), sunrise:parseLocal(wx.daily.sunrise[i]), sunset:parseLocal(wx.daily.sunset[i])}));
-  D = {key, hours, days, hilo, tideName, shore, sea:{lat:wx.latitude, lon:wx.longitude}, fetched:raw.fetched};
+  D = {key, hours, days, hilo, tideName, refRate, refSwing, shore, sea:{lat:wx.latitude, lon:wx.longitude}, fetched:raw.fetched};
   computeFishing();
 }
 
@@ -364,6 +368,21 @@ function tideAt(t){
   return {h, rate, next:b, prev:a};
 }
 
+// How the water is moving at time t. "Moving" = faster than a quarter of the cycle's strongest rate (the score's slack threshold).
+// {moving, rising, slack: the high/low it is heading to (or just left), until: when it goes slack, resume: when it picks up again,
+//  swing: ft between the two tides, strength: swing relative to the cycle's biggest}
+function tideFlow(t){
+  const td = tideAt(t); if (!td || !D.refRate) return null;
+  const thr = 0.25*D.refRate, peak = (a,b) => Math.abs(b.v-a.v)*Math.PI/2/((b.t-a.t)/H);
+  const a = td.prev, b = td.next, span = b.t-a.t, x = thr/peak(a,b), f = x<1 ? Math.asin(x)/Math.PI : null;
+  const o = {moving:Math.abs(td.rate)>=thr, rising:td.rate>0, slack:b, swing:Math.abs(b.v-a.v), strength:D.refSwing ? Math.abs(b.v-a.v)/D.refSwing : 1};
+  if (o.moving){ o.until = a.t+(1-f)*span; return o; }
+  if (f!=null && t < a.t+f*span){ o.slack = a; o.resume = a.t+f*span; return o; }   // just past a high/low, not moving yet
+  const c = D.hilo[D.hilo.indexOf(b)+1];                                             // coming up on a high/low: when does the next leg get going?
+  if (c){ const y = thr/peak(b,c); if (y<1) o.resume = b.t+Math.asin(y)/Math.PI*(c.t-b.t); }
+  return o;
+}
+
 /* ---------- solunar (moon transit = major, moonrise/set = minor) ---------- */
 function solunar(dayT){
   const ev = []; const step = 5*M, h0 = 0.133*Math.PI/180;
@@ -387,10 +406,7 @@ function computeFishing(){
   const evAll = [];
   D.days.forEach(d => solunar(d.t).forEach(e => { if (e.t>=d.t && e.t<d.t+24*H) evAll.push(e); }));
   D.events = evAll;
-  // max tide rate per day for normalising
-  const maxRate = {};
-  D.hours.forEach(h => { const td = tideAt(h.t+30*M); h.tide = td; const k = Math.floor((h.t)/(24*H));
-    if (td) maxRate[k] = Math.max(maxRate[k]||0, Math.abs(td.rate)); });
+  D.hours.forEach(h => { h.tide = tideAt(h.t+30*M); });
   D.hours.forEach((h, i) => {
     const mid = h.t + 30*M; let s = 10; const why = [];
     let sol = 0, solWhy = null;
@@ -400,7 +416,8 @@ function computeFishing(){
       else v = d<=30 ? 25 : d<=75 ? 25*(1-(d-30)/45)*0.6 : 0;
       if (v>sol){ sol=v; solWhy=e; } }
     s += sol; h.sol = sol; if (sol>=20 && solWhy) why.push((solWhy.kind==="major"?"★ ":"☆ ")+solWhy.what+" "+fmtH(solWhy.t));
-    if (h.tide){ const mr = maxRate[Math.floor(h.t/(24*H))]||1; const mv = Math.abs(h.tide.rate)/mr; h.mv = mv;
+    // tide movement against the strongest rate of the whole spring-neap cycle, so weak-swing days score lower than strong ones
+    if (h.tide){ const mv = Math.min(1, Math.abs(h.tide.rate)/(D.refRate||1)); h.mv = mv;
       s += 25*mv; if (mv>0.65) why.push("strong tide movement"); else if (mv<0.25) why.push("slack tide"); }
     const day = D.days.find(d => h.t>=d.t && h.t<d.t+24*H);
     if (day){ const dl = Math.min(Math.abs(mid-day.sunrise), Math.abs(mid-day.sunset))/M;
@@ -517,11 +534,13 @@ function renderTiles(){
   const isNow = nowLocal()>=h.t && nowLocal()<h.t+H;
   $("selTime").textContent = (isNow?"Now · ":"")+DOWL[dt.getUTCDay()]+" "+fmtH(h.t).replace("a"," AM").replace("p"," PM");
   $("selHint").textContent = "tap any hour below";
-  const td = h.tide;
+  // Tide tile leads with what matters for the bite: is the water moving, and when does it stop.
+  const fl = tideFlow(isNow ? nowLocal() : h.t+30*M), r5 = t => fmtH(Math.round(t/(5*M))*5*M);
   let tideBig="—", tideSub="";
-  if (td){ const rising = td.rate>0.02, falling = td.rate<-0.02;
-    tideBig = `${td.h.toFixed(1)}<small>ft</small> ${rising?"↗":falling?"↘":"→"}`;
-    tideSub = `${rising?"Rising":falling?"Falling":"Slack"} · <b>${td.next.type==="H"?"High":"Low"} ${fmtH(td.next.t)}</b> ${td.next.v.toFixed(1)}′`; }
+  if (fl){ const hl = fl.slack.type==="H" ? "high" : "low";
+    tideBig = fl.moving ? (fl.rising ? "↗ Rising" : "↘ Falling") : "→ Slack";
+    tideSub = `<b>${hl} ${fmtH(fl.slack.t)}</b><br>`+(fl.moving ? `moves till <b>${r5(fl.until)}</b><br>` : fl.resume ? `moves at <b>${r5(fl.resume)}</b><br>` : "")+
+      `swing ${fl.swing.toFixed(1)}′ ${fl.strength>=0.8?"strong":fl.strength>=0.55?"avg":"weak"}`; }
   const ill = SunCalc.getMoonIllumination(toReal(h.t));
   const phaseEmoji = ["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"][Math.round(ill.phase*8)%8];
   const sol = D.events.filter(e=>day&&e.t>=day.t&&e.t<day.t+24*H).sort((a,b)=>a.t-b.t);
@@ -538,7 +557,7 @@ function renderTiles(){
     <div class="tile"><h3>Air · Water</h3>
       <div class="big" style="color:${h.air==null?"inherit":tempColor(h.air)}">${h.air==null?"—":Math.round(h.air)+"<small>°F</small>"}</div>
       <div class="sub">${h.feels==null?"":`feels <b>${Math.round(h.feels)}°</b><br>`}water <b>${h.sst==null?"—":Math.round(h.sst)+"°"}</b></div></div>
-    <div class="tile"><h3>Tide</h3><div class="big">${tideBig}</div><div class="sub">${tideSub}</div></div>
+    <div class="tile"><h3>Tide</h3><div class="big" style="font-size:19px">${tideBig}</div><div class="sub">${tideSub}</div></div>
     <div class="tile" style="background:linear-gradient(160deg,var(--panel2),var(--panel) 75%)"><h3>Fishing</h3>
       <div class="big" style="color:${fishColor(h.fish)}">${h.fish}<small>${fishLabel(h.fish)}</small></div>
       <div class="sub">${h.why.slice(0,2).join(" · ")||"—"}</div></div>
