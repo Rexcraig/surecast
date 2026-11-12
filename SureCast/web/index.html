@@ -110,6 +110,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .opt{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:10px;background:var(--bg);margin-top:6px}
 .opt small{color:var(--muted)}
 .opt.on{outline:1.5px solid var(--accent)}
+.btn.ghost{background:var(--panel2);color:var(--text)}.btn:disabled{opacity:.7}
 .btn{display:block;width:100%;padding:11px;border-radius:10px;background:var(--accent);color:#06231f;font-weight:700;margin-top:10px}
 </style>
 </head>
@@ -167,7 +168,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 <script>
 "use strict";
-const VERSION = "0.22";
+const VERSION = "0.23";
 // User's regular spots. All use Lake Worth Pier: the nearest ocean-side tide station (closer ones are on the ICWW).
 const PIER = {id:"8722670", name:"Lake Worth Pier (ocean)"};
 // Spots on the beach between Lake Worth Pier and Hillsboro Inlet get a blend of both ocean stations,
@@ -723,7 +724,7 @@ function logNow(kind, btn, label){
   if (!D) return; const hi = curHourIdx(); if (hi<0) return;
   const h = D.hours[hi], td = tideAt(nowLocal()), list = catches();
   list.push({kind, t:Date.now(), lt:nowLocal(), spot:spot.name, lat:spot.lat, lon:spot.lon, score:h.fish, why:h.why, sol:h.sol, mv:h.mv, dp:h.dp,
-    wind:h.wind, dir:h.dir, gust:h.gust, wave:h.wave, per:h.per, sst:h.sst, air:h.air, p:h.p, cloud:h.cloud, rain:h.rain,
+    wind:h.wind, dir:h.dir, gust:h.gust, wave:h.wave, per:h.per, sst:h.sst, air:h.air, p:h.p, cloud:h.cloud, rain:h.rain, v:VERSION,
     tide: td ? {h:+td.h.toFixed(2), rate:+td.rate.toFixed(3)} : null, moon:+SunCalc.getMoonIllumination(new Date()).fraction.toFixed(2),
     live: LIVE ? {name:LIVE.name, kn:+LIVE.kn.toFixed(1), dir:LIVE.dir, air:LIVE.air} : null, note:""});
   store.set("surecast.catches", list); updCatchBtn();
@@ -732,26 +733,89 @@ function logNow(kind, btn, label){
 }
 $("catchBtn").onclick = () => logNow("catch", $("catchBtn"), "🎣 Caught one");
 $("blankBtn").onclick = () => logNow("none", $("blankBtn"), "No bites");
+// One log entry as HTML. edit=true adds the Delete button and the note box (your own log); otherwise the note is shown as text.
+function entryHTML(c, edit){
+  const d = new Date(c.lt), tr = c.tide ? (c.tide.rate>0.02?"rising":c.tide.rate<-0.02?"falling":"slack") : null;
+  return `<div class="entry">${edit?`<button class="x" data-del="${c.t}">Delete</button>`:""}<b>${isCatch(c)?"🎣 Catch":"No bites"} · ${DOWL[d.getUTCDay()]} ${d.getUTCMonth()+1}/${d.getUTCDate()} · ${fmtHM(c.lt)}</b><br>${esc(c.spot)} · `+
+    `score <b>${c.score}</b> ${fishLabel(c.score)}`+(c.wind!=null?` · wind ${Math.round(c.wind)} kts ${compass(c.dir)}`:"")+(c.wave!=null?` · waves ${c.wave.toFixed(1)} ft`:"")+
+    (tr?` · tide ${tr}`:"")+(c.sst!=null?` · water ${Math.round(c.sst)}°`:"")+(c.air!=null?` · air ${Math.round(c.air)}°`:"")+
+    (edit ? `<input data-note="${c.t}" placeholder="Note (species, bait…)" value="${esc(c.note)}" autocomplete="off">` : (c.note?`<br>“${esc(c.note)}”`:""))+`</div>`;
+}
+function logSummary(list){
+  const got = list.filter(isCatch), none = list.filter(c=>!isCatch(c)), avg = a => a.length ? Math.round(a.reduce((x,c)=>x+c.score,0)/a.length) : "—";
+  const pct = (a, f) => a.length ? Math.round(a.filter(f).length/a.length*100)+"%" : "—";
+  return `<p>${got.length} catch${got.length===1?"":"es"} · ${none.length} no-bite tap${none.length===1?"":"s"}\nAverage score: catches <b>${avg(got)}</b> · no bites <b>${avg(none)}</b>\nOn moving tide: catches ${pct(got,c=>c.mv>0.5)} · no bites ${pct(none,c=>c.mv>0.5)}</p>`;
+}
+const whenText = ms => { const u = toLocal(new Date(ms)); return `${DOWL[new Date(u).getUTCDay()]} ${fmtHM(u)}`; };
 function showLog(){
-  const list = catches().slice().reverse(); let html;
+  const list = catches().slice().reverse(), sent = store.get("surecast.sent", null); let html;
   if (!list.length) html = `<p>Tap “Caught one” when you land a fish, and “No bites” when you've been fishing a while with nothing. Each tap saves the wind, waves, tide, temperatures and score at that moment. Once there are a few dozen of both, the fishing score can be tuned to what actually works for you.</p>`;
-  else {
-    const got = list.filter(isCatch), none = list.filter(c=>!isCatch(c)), avg = a => a.length ? Math.round(a.reduce((x,c)=>x+c.score,0)/a.length) : "—";
-    const pct = (a, f) => a.length ? Math.round(a.filter(f).length/a.length*100)+"%" : "—";
-    html = `<p>${got.length} catch${got.length===1?"":"es"} · ${none.length} no-bite tap${none.length===1?"":"s"}\nAverage score: catches <b>${avg(got)}</b> · no bites <b>${avg(none)}</b>\nOn moving tide: catches ${pct(got,c=>c.mv>0.5)} · no bites ${pct(none,c=>c.mv>0.5)}</p>`+
-      list.map(c => { const d = new Date(c.lt), tr = c.tide ? (c.tide.rate>0.02?"rising":c.tide.rate<-0.02?"falling":"slack") : null;
-        return `<div class="entry"><button class="x" data-del="${c.t}">Delete</button><b>${isCatch(c)?"🎣 Catch":"No bites"} · ${DOWL[d.getUTCDay()]} ${d.getUTCMonth()+1}/${d.getUTCDate()} · ${fmtHM(c.lt)}</b><br>${esc(c.spot)} · `+
-          `score <b>${c.score}</b> ${fishLabel(c.score)} · wind ${Math.round(c.wind)} kts ${compass(c.dir)}`+(c.wave!=null?` · waves ${c.wave.toFixed(1)} ft`:"")+
-          (tr?` · tide ${tr}`:"")+(c.sst!=null?` · water ${Math.round(c.sst)}°`:"")+(c.air!=null?` · air ${Math.round(c.air)}°`:"")+
-          `<input data-note="${c.t}" placeholder="Note (species, bait…)" value="${esc(c.note)}" autocomplete="off"></div>`; }).join("");
-  }
+  else html = logSummary(list)+`<button class="btn ghost" id="sendLog">Send Log</button>`+(sent?`<div class="note">Last sent ${whenText(sent.t)}</div>`:"")+list.map(c => entryHTML(c, true)).join("");
+  if (NATIVE || store.get("surecast.readcode", "")) html += `<button class="btn ghost" id="friendsBtn">Friends' logs</button>`;
   openInfo("Fishing log", html);
   const body = $("infoBody");
   body.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
     if (!b.dataset.sure){ b.dataset.sure = 1; b.textContent = "Tap again to delete"; return; }
-    store.set("surecast.catches", catches().filter(c => c.t!==+b.dataset.del)); updCatchBtn(); showLog(); });
+    const t = +b.dataset.del; store.set("surecast.catches", catches().filter(c => c.t!==t));
+    store.set("surecast.gone", store.get("surecast.gone", []).concat(t).slice(-500));   // so a sent copy of it is removed on the next send
+    updCatchBtn(); showLog(); });
   body.querySelectorAll("[data-note]").forEach(inp => inp.onchange = () => { const list = catches(), c = list.find(c => c.t===+inp.dataset.note);
     if (c){ c.note = inp.value.trim(); store.set("surecast.catches", list); } });
+  if ($("sendLog")) $("sendLog").onclick = showSend;
+  if ($("friendsBtn")) $("friendsBtn").onclick = () => showFriends();
+}
+
+/* ---------- sending the log to Will (nothing leaves the phone until "Send" is tapped) ---------- */
+const LOG_API = "https://occhiphoto.com/surecast/api/log";
+const NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.schedule);   // the iPhone app, as opposed to the web page
+function senderId(){   // random, made once per phone; lets a later send update the same log instead of starting a second one
+  let id = store.get("surecast.sender", "");
+  if (!id){ id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(36).padStart(2,"0")).join(""); store.set("surecast.sender", id); }
+  return id;
+}
+const postJSON = (url, obj) => fetch(url, {method:"POST", body:JSON.stringify(obj), signal:AbortSignal.timeout(15000)});   // plain-text body: no CORS preflight
+function showSend(){
+  const list = catches().slice().reverse(), n = list.length;
+  openInfo("Send Log", `<p>This is what gets sent to Will: ${n} entr${n===1?"y":"ies"}.</p>`+
+    `<input id="sendName" placeholder="Your first name" maxlength="24" autocomplete="off" value="${esc(store.get("surecast.name", ""))}">`+
+    `<button class="btn" id="sendGo">Send</button><button class="btn ghost" id="sendBack">Back</button>`+list.map(c => entryHTML(c, false)).join(""));
+  $("sendBack").onclick = showLog;
+  $("sendGo").onclick = async () => {
+    const go = $("sendGo"), name = $("sendName").value.trim();
+    if (!name){ $("sendName").focus(); $("sendName").placeholder = "Type your first name, then Send"; return; }
+    store.set("surecast.name", name); go.disabled = true; go.textContent = "Sending…";
+    try{
+      const r = await postJSON(LOG_API, {id:senderId(), name, entries:catches(), gone:store.get("surecast.gone", [])});
+      if (!r.ok) throw new Error(r.status);
+      store.set("surecast.sent", {t:Date.now(), n}); go.textContent = "✓ Sent";
+      setTimeout(() => { if ($("sendGo")===go) showLog(); }, 1500);
+    }catch(e){ go.disabled = false; go.textContent = "Couldn't send. Tap to try again"; }
+  };
+}
+// Everyone's sent logs. Needs a code typed once (kept on this phone); the button only shows in the iPhone app.
+async function showFriends(msg){
+  const code = store.get("surecast.readcode", "");
+  if (!code){
+    openInfo("Friends' logs", (msg?`<p>${esc(msg)}</p>`:"")+`<input id="readCode" placeholder="Code" autocomplete="off" autocapitalize="none">`+
+      `<button class="btn" id="readGo">Open</button><button class="btn ghost" id="sendBack">Back</button>`);
+    $("sendBack").onclick = showLog;
+    $("readGo").onclick = () => { const c = $("readCode").value.trim(); if (c){ store.set("surecast.readcode", c); showFriends(); } };
+    return;
+  }
+  openInfo("Friends' logs", `<p>Loading…</p>`);
+  let html;
+  try{
+    const r = await postJSON(LOG_API+"/read", {code, id:store.get("surecast.sender", "")});
+    if (r.status===403){ store.set("surecast.readcode", ""); return showFriends("That code didn't work."); }
+    if (!r.ok) throw new Error(r.status);
+    const anglers = (await r.json()).anglers || [];
+    html = anglers.length ? anglers.map(a => { const list = a.entries.slice().sort((x,y)=>y.t-x.t);
+      return `<h4>${esc(a.name)}${a.me?" (you)":""} · sent ${whenText(a.updated)}</h4>`+logSummary(list)+list.map(c => entryHTML(c, false)).join(""); }).join("")
+      : `<p>Nobody has sent a log yet.</p>`;
+  }catch(e){ html = `<p>Couldn't load the logs. Check your connection and try again.</p>`; }
+  if ($("infoTitle").textContent!=="Friends' logs" || !$("info").classList.contains("open")) return;   // closed or moved on while loading
+  openInfo("Friends' logs", html+`<button class="btn ghost" id="sendBack">Back</button>`);
+  $("sendBack").onclick = showLog;
 }
 $("logBtn").onclick = showLog;
 updCatchBtn();
