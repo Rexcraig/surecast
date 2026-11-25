@@ -1,0 +1,30 @@
+# SureCast web version, served at occhiphoto.com/surecast/: static files plus /surecast/api/live and /surecast/api/log (src/worker.js).
+# Two secrets, set with `wrangler secret put` and never stored in this repo:
+#   WEATHERSTEM_KEY  the WeatherSTEM API key, used only by the Worker
+#   LOG_READ_CODE    the code friends enter to read each other's logs
+# Deploy with ./deploy.sh, which copies the app's current web files first.
+name = "surecast"
+compatibility_date = "2026-09-01"
+workers_dev = false
+main = "src/worker.js"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"   # the Worker sees the whole path, so /surecast/ is public/surecast/index.html
+
+# Sent fishing logs live in one Durable Object (built-in storage; needs no separate database or extra token permission).
+[[durable_objects.bindings]]
+name = "LOGS"
+class_name = "LogStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LogStore"]
+
+[[routes]]
+pattern = "occhiphoto.com/surecast*"
+zone_name = "occhiphoto.com"
+
+[[routes]]
+pattern = "www.occhiphoto.com/surecast*"
+zone_name = "occhiphoto.com"

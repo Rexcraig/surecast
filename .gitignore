@@ -1,3 +1,6 @@
 .DS_Store
 xcuserdata/
 *.xcuserstate
+worker/public/
+worker/.wrangler/
+worker/node_modules/
